@@ -52,11 +52,23 @@ public final class BKDConfig {
   /** packedBytesLength plus docID size */
   public final int bytesPerDoc;
 
+  /** Disable sorting doc id if they are already monotonically increasing */
+  public final boolean disableSortDocId;
+
   public BKDConfig(
       final int numDims,
       final int numIndexDims,
       final int bytesPerDim,
       final int maxPointsInLeafNode) {
+    this(numDims, numIndexDims, bytesPerDim, maxPointsInLeafNode, false);
+  }
+
+  public BKDConfig(
+      final int numDims,
+      final int numIndexDims,
+      final int bytesPerDim,
+      final int maxPointsInLeafNode,
+      final boolean disableSortDocId) {
     verifyParams(numDims, numIndexDims, bytesPerDim, maxPointsInLeafNode);
     this.numDims = numDims;
     this.numIndexDims = numIndexDims;
@@ -66,6 +78,7 @@ public final class BKDConfig {
     this.packedBytesLength = numDims * bytesPerDim;
     // dimensional values (numDims * bytesPerDim) + docID (int)
     this.bytesPerDoc = this.packedBytesLength + Integer.BYTES;
+    this.disableSortDocId = disableSortDocId;
   }
 
   private static void verifyParams(

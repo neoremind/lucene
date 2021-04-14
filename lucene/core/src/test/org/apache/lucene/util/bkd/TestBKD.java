@@ -47,8 +47,14 @@ import org.apache.lucene.util.TestUtil;
 public class TestBKD extends LuceneTestCase {
 
   public void testBasicInts1D() throws Exception {
+    doTestBasicInts1D(true);
+    doTestBasicInts1D(false);
+  }
+
+  public void doTestBasicInts1D(boolean disableSortDocId) throws Exception {
     try (Directory dir = getDirectory(100)) {
-      BKDWriter w = new BKDWriter(100, dir, "tmp", new BKDConfig(1, 1, 4, 2), 1.0f, 100);
+      BKDWriter w =
+          new BKDWriter(100, dir, "tmp", new BKDConfig(1, 1, 4, 2, disableSortDocId), 1.0f, 100);
       byte[] scratch = new byte[4];
       for (int docID = 0; docID < 100; docID++) {
         NumericUtils.intToSortableBytes(docID, scratch, 0);

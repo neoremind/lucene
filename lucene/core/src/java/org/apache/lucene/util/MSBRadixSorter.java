@@ -44,14 +44,27 @@ public abstract class MSBRadixSorter extends Sorter {
 
   private final int maxLength;
 
+  private boolean useStableSort;
+
   /**
-   * Sole constructor.
+   * Constructor.
    *
    * @param maxLength the maximum length of keys, pass {@link Integer#MAX_VALUE} if unknown.
    */
   protected MSBRadixSorter(int maxLength) {
+    this(maxLength, false);
+  }
+
+  /**
+   * Constructor.
+   *
+   * @param maxLength the maximum length of keys, pass {@link Integer#MAX_VALUE} if unknown.
+   * @param useStableSort whether to use stable sort or not.
+   */
+  protected MSBRadixSorter(int maxLength, boolean useStableSort) {
     this.maxLength = maxLength;
     this.commonPrefix = new int[Math.min(24, maxLength)];
+    this.useStableSort = useStableSort;
   }
 
   /**
@@ -168,7 +181,11 @@ public abstract class MSBRadixSorter extends Sorter {
     int[] startOffsets = histogram;
     int[] endOffsets = this.endOffsets;
     sumHistogram(histogram, endOffsets);
-    reorder(from, to, startOffsets, endOffsets, k);
+    if (useStableSort) {
+      stableReorder(from, to, startOffsets, endOffsets, k);
+    } else {
+      reorder(from, to, startOffsets, endOffsets, k);
+    }
     endOffsets = startOffsets;
 
     if (k + 1 < maxLength) {
@@ -294,5 +311,24 @@ public abstract class MSBRadixSorter extends Sorter {
         swap(from + h1, from + h2);
       }
     }
+  }
+
+  /**
+   * Works exactly like {@link #reorder(int, int, int[], int[], int)}, but use stable sort, since
+   * Dutch sort does not guarantee ordering for same values.
+   *
+   * <p>When this method returns, startOffsets and endOffsets are equal.
+   */
+  private void stableReorder(int from, int to, int[] startOffsets, int[] endOffsets, int k) {
+    int[] assignPos = ArrayUtil.copyOfSubArray(startOffsets, 0, startOffsets.length);
+    for (int i = 0; i < HISTOGRAM_SIZE; ++i) {
+      final int limit = endOffsets[i];
+      for (int h1 = assignPos[i]; h1 < limit; h1++) {
+        final int b = getBucket(from + h1, k);
+        final int h2 = startOffsets[b]++;
+        assign(from + h1, from + h2);
+      }
+    }
+    finalizeAssign(from, to);
   }
 }

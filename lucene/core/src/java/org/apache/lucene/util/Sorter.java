@@ -63,6 +63,16 @@ public abstract class Sorter {
    */
   public abstract void sort(int from, int to);
 
+  /** Assign the from-th value to to-th position in another array which used temporarily. */
+  protected void assign(int from, int to) {
+    throw new UnsupportedOperationException();
+  }
+
+  /** Finalize assign operation, to switch array. */
+  protected void finalizeAssign(int from, int to) {
+    throw new UnsupportedOperationException();
+  }
+
   void checkRange(int from, int to) {
     if (to < from) {
       throw new IllegalArgumentException(
