@@ -42,6 +42,18 @@ public abstract class MutablePointValues extends PointValues {
   /** Swap the i-th and j-th values. */
   public abstract void swap(int i, int j);
 
+  /** For TimSort. Copy value from src-th to dest-th. */
+  public abstract void copy(int src, int dest);
+
+  /** For TimSort. Save len-length bytes from i-th to a temp array. */
+  public abstract void save(int i, int len);
+
+  /** For TimSort. Restore i-th in temp array to j-th value. */
+  public abstract void restore(int i, int j);
+
+  /** For TimSort. Get the k-th byte of the i-th value in temp array. */
+  public abstract byte getTempByteAt(int i, int k);
+
   /** Assign the from-th value to to-th position in another array which used temporarily. */
   public abstract void assign(int from, int to);
 

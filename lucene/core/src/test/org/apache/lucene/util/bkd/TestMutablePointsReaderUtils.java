@@ -291,6 +291,8 @@ public class TestMutablePointsReaderUtils extends LuceneTestCase {
 
     private Point[] temp;
 
+    private Point[] timSortTemp;
+
     DummyPointsReader(Point[] points) {
       this.points = points.clone();
     }
@@ -361,6 +363,30 @@ public class TestMutablePointsReaderUtils extends LuceneTestCase {
     @Override
     public int getDocCount() {
       throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void copy(int src, int dest) {
+      points[dest] = points[src];
+    }
+
+    @Override
+    public void save(int i, int len) {
+      if (timSortTemp == null) {
+        timSortTemp = new Point[points.length / 8];
+      }
+      System.arraycopy(points, i, timSortTemp, 0, len);
+    }
+
+    @Override
+    public void restore(int i, int j) {
+      points[j] = timSortTemp[i];
+    }
+
+    @Override
+    public byte getTempByteAt(int i, int k) {
+      BytesRef packedValue = timSortTemp[i].packedValue;
+      return packedValue.bytes[packedValue.offset + k];
     }
 
     @Override

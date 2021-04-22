@@ -19,13 +19,13 @@ package org.apache.lucene.util.bkd;
 import java.util.Arrays;
 import org.apache.lucene.codecs.MutablePointValues;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.InPlaceMergeSorter;
 import org.apache.lucene.util.IntroSelector;
 import org.apache.lucene.util.IntroSorter;
 import org.apache.lucene.util.RadixSelector;
 import org.apache.lucene.util.Selector;
 import org.apache.lucene.util.Sorter;
 import org.apache.lucene.util.StableMSBRadixSorter;
+import org.apache.lucene.util.TimSorter;
 import org.apache.lucene.util.packed.PackedInts;
 
 /**
@@ -62,6 +62,15 @@ public final class MutablePointsReaderUtils {
       protected int byteAt(int i, int k) {
         if (k < config.packedBytesLength) {
           return Byte.toUnsignedInt(reader.getByteAt(i, k));
+        } else {
+          final int shift = bitsPerDocId - ((k - config.packedBytesLength + 1) << 3);
+          return (reader.getDocID(i) >>> Math.max(0, shift)) & 0xff;
+        }
+      }
+
+      protected int tempByteAt(int i, int k) {
+        if (k < config.packedBytesLength) {
+          return Byte.toUnsignedInt(reader.getTempByteAt(i, k));
         } else {
           final int shift = bitsPerDocId - ((k - config.packedBytesLength + 1) << 3);
           return (reader.getDocID(i) >>> Math.max(0, shift)) & 0xff;
@@ -127,8 +136,9 @@ public final class MutablePointsReaderUtils {
                 return pivotDoc - reader.getDocID(j);
               }
             };
-        Sorter stableSorter =
-            new InPlaceMergeSorter() {
+        final int maxTempSlots = (to - from) / 8;
+        Sorter timSorter =
+            new TimSorter(maxTempSlots) {
 
               @Override
               protected int compare(final int i, final int j) {
@@ -145,11 +155,40 @@ public final class MutablePointsReaderUtils {
               }
 
               @Override
+              protected int compareSaved(int i, int j) {
+                for (int o = k; o < config.packedBytesLength; ++o) {
+                  final int b1 = tempByteAt(i, o);
+                  final int b2 = byteAt(j, o);
+                  if (b1 != b2) {
+                    return b1 - b2;
+                  } else if (b1 == -1) {
+                    break;
+                  }
+                }
+                return 0;
+              }
+
+              @Override
               protected void swap(final int i, final int j) {
                 reader.swap(i, j);
               }
+
+              @Override
+              protected void copy(int src, int dest) {
+                reader.copy(src, dest);
+              }
+
+              @Override
+              protected void save(int i, int len) {
+                reader.save(i, len);
+              }
+
+              @Override
+              protected void restore(int i, int j) {
+                reader.restore(i, j);
+              }
             };
-        return useStableSort ? stableSorter : introSorter;
+        return useStableSort ? timSorter : introSorter;
       }
     }.sort(from, to);
   }

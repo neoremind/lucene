@@ -80,7 +80,10 @@ class PointValuesWriter {
     PointValues points =
         new MutablePointValues() {
           final int[] ords = new int[numPoints];
+          // Only works in stable reorder for MSB radix sort as temp array.
           int[] temp;
+          // Only works in TimSort as temp array.
+          int[] timSortTemp;
 
           {
             for (int i = 0; i < numPoints; ++i) {
@@ -163,6 +166,29 @@ class PointValuesWriter {
           public byte getByteAt(int i, int k) {
             final long offset = (long) packedBytesLength * ords[i] + k;
             return bytes.readByte(offset);
+          }
+
+          @Override
+          public void copy(int src, int dest) {
+            ords[dest] = ords[src];
+          }
+
+          @Override
+          public void save(int i, int len) {
+            if (timSortTemp == null) {
+              timSortTemp = new int[numPoints / 8];
+            }
+            System.arraycopy(ords, i, timSortTemp, 0, len);
+          }
+
+          @Override
+          public void restore(int i, int j) {
+            ords[j] = timSortTemp[i];
+          }
+
+          @Override
+          public byte getTempByteAt(int i, int k) {
+            return getByteAt(timSortTemp[i], k);
           }
 
           @Override
@@ -302,6 +328,26 @@ class PointValuesWriter {
     @Override
     public void swap(int i, int j) {
       in.swap(i, j);
+    }
+
+    @Override
+    public void copy(int src, int dest) {
+      in.copy(src, dest);
+    }
+
+    @Override
+    public void save(int i, int len) {
+      in.save(i, len);
+    }
+
+    @Override
+    public void restore(int i, int j) {
+      in.restore(i, j);
+    }
+
+    @Override
+    public byte getTempByteAt(int i, int k) {
+      return in.getTempByteAt(i, k);
     }
 
     @Override

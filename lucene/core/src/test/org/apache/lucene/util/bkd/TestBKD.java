@@ -1700,6 +1700,26 @@ public class TestBKD extends LuceneTestCase {
           }
 
           @Override
+          public void copy(int src, int dest) {
+            // do nothing
+          }
+
+          @Override
+          public void save(int i, int len) {
+            // do nothing
+          }
+
+          @Override
+          public void restore(int i, int j) {
+            // do nothing
+          }
+
+          @Override
+          public byte getTempByteAt(int i, int k) {
+            return 0;
+          }
+
+          @Override
           public void assign(int from, int to) {
             // do nothing
           }
@@ -1848,6 +1868,26 @@ public class TestBKD extends LuceneTestCase {
           @Override
           public int getDocCount() {
             return 11;
+          }
+
+          @Override
+          public void copy(int src, int dest) {
+            throw new UnsupportedOperationException("not implement");
+          }
+
+          @Override
+          public void save(int i, int len) {
+            throw new UnsupportedOperationException("not implement");
+          }
+
+          @Override
+          public byte getTempByteAt(int i, int k) {
+            throw new UnsupportedOperationException("not implement");
+          }
+
+          @Override
+          public void restore(int i, int j) {
+            throw new UnsupportedOperationException("not implement");
           }
 
           @Override
