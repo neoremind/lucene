@@ -185,6 +185,11 @@ Changes in Runtime Behavior
 
 Build
 ---------------------
+* GITHUB#15926: Use the Java 25+ (JEP 509) CPU-time sampling profiler when available (currently
+  only on Linux), and fall back to legacy wall-clock execution sampling elsewhere. ProfileResults
+  recognizes jdk.CPUTimeSample; CodeProfilingPlugin picks gradle/testing/profiling.cputime.jfc or
+  profiling.jfc by host OS. (Prithvi S)
+
 * GITHUB#15327: New low-level build options to detect abuse of LuceneTestCase.random():
   tests.random.maxacquires and tests.random.maxcalls (Robert Muir, Dawid Weiss)
 
