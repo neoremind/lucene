@@ -530,6 +530,8 @@ Improvements
 
 * GITHUB#15570: Disallow invalid offset 0 for LZ4 decompression (Marcono1234)
 
+* GITHUB#15557: Introduce AllGroupsCollectorManager to parallelize search when using AllGroupsCollector. (Binlong Gao)
+
 Optimizations
 ---------------------
 * GITHUB#15140: Optimize TopScoreDocCollector with TernaryLongHeap for improved performance over Binary-LongHeap. (Ramakrishna Chilaka)
