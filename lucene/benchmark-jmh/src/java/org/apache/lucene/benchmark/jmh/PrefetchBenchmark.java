@@ -55,11 +55,11 @@ import org.openjdk.jmh.infra.Blackhole;
  *   -p dataDir=/tmp -p fileName=prefetch_bench_data -p fileSizeGB=4
  * </pre>
  */
-@BenchmarkMode(Mode.Throughput)
-@OutputTimeUnit(TimeUnit.MILLISECONDS)
+@BenchmarkMode(Mode.AverageTime)
+@OutputTimeUnit(TimeUnit.MICROSECONDS)
 @State(Scope.Benchmark)
-@Warmup(iterations = 5, time = 1)
-@Measurement(iterations = 5, time = 1)
+@Warmup(iterations = 1, time = 3)
+@Measurement(iterations = 2, time = 5)
 @Fork(
     value = 1,
     jvmArgsAppend = {"-Xmx2g", "-Xms2g", "-XX:+AlwaysPreTouch"})
