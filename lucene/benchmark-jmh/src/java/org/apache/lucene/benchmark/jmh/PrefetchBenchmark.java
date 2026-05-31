@@ -65,24 +65,17 @@ import org.openjdk.jmh.infra.Blackhole;
     jvmArgsAppend = {"-Xmx2g", "-Xms2g", "-XX:+AlwaysPreTouch"})
 public class PrefetchBenchmark {
 
-  /** Directory containing the pre-generated test file. */
   @Param("/tmp")
   public String dataDir;
 
-  /** Name of the pre-generated test file. */
   @Param("prefetch_bench_data")
   public String fileName;
 
-  /**
-   * Logical file size in GB that defines the random access range. The benchmark randomly seeks
-   * within [0, fileSizeGB * 1GB). The actual file on disk must be at least this large. Set via
-   * command line: -p fileSizeGB=4
-   */
   @Param({"4"})
   public int fileSizeGB;
 
   /** Number of bytes to prefetch per call. */
-  @Param({"4096", "8192", "16384"})
+  @Param({"8192", "16384", "65536"})
   public int prefetchLength;
 
   private MMapDirectory dir;
@@ -91,6 +84,9 @@ public class PrefetchBenchmark {
   private IndexInput inputSequential;
   private IndexInput inputNoPrefetch;
   private long accessRange;
+  private byte[] readBuf;
+
+  private static final int READ_CHUNK = 4096;
 
   @Setup(Level.Trial)
   public void setup() throws Exception {
@@ -104,12 +100,14 @@ public class PrefetchBenchmark {
     inputSequential =
         dir.openInput(fileName, IOContext.DEFAULT.withHints(DataAccessHint.SEQUENTIAL));
     inputNoPrefetch = dir.openInput(fileName, IOContext.DEFAULT);
+    readBuf = new byte[READ_CHUNK];
   }
 
   @Setup(Level.Iteration)
   public void dropPageCache() throws Exception {
     ProcessBuilder pb =
-        new ProcessBuilder("bash", "-c", "sync && echo 3 > /proc/sys/vm/drop_caches");
+        new ProcessBuilder(
+            "sudo", "bash", "-c", "sync && echo 3 > /proc/sys/vm/drop_caches");
     pb.inheritIO();
     Process p = pb.start();
     p.waitFor();
@@ -130,7 +128,13 @@ public class PrefetchBenchmark {
     long offset = ThreadLocalRandom.current().nextLong(accessRange - prefetchLength);
     bh.consume(inputRandom.prefetch(offset, prefetchLength));
     inputRandom.seek(offset);
-    bh.consume(inputRandom.readLong());
+    int remaining = prefetchLength;
+    while (remaining > 0) {
+      int toRead = Math.min(READ_CHUNK, remaining);
+      inputRandom.readBytes(readBuf, 0, toRead);
+      remaining -= toRead;
+    }
+    bh.consume(readBuf);
   }
 
   @Benchmark
@@ -138,7 +142,13 @@ public class PrefetchBenchmark {
     long offset = ThreadLocalRandom.current().nextLong(accessRange - prefetchLength);
     bh.consume(inputNormal.prefetch(offset, prefetchLength));
     inputNormal.seek(offset);
-    bh.consume(inputNormal.readLong());
+    int remaining = prefetchLength;
+    while (remaining > 0) {
+      int toRead = Math.min(READ_CHUNK, remaining);
+      inputNormal.readBytes(readBuf, 0, toRead);
+      remaining -= toRead;
+    }
+    bh.consume(readBuf);
   }
 
   @Benchmark
@@ -146,13 +156,25 @@ public class PrefetchBenchmark {
     long offset = ThreadLocalRandom.current().nextLong(accessRange - prefetchLength);
     bh.consume(inputSequential.prefetch(offset, prefetchLength));
     inputSequential.seek(offset);
-    bh.consume(inputSequential.readLong());
+    int remaining = prefetchLength;
+    while (remaining > 0) {
+      int toRead = Math.min(READ_CHUNK, remaining);
+      inputSequential.readBytes(readBuf, 0, toRead);
+      remaining -= toRead;
+    }
+    bh.consume(readBuf);
   }
 
   @Benchmark
   public void noPrefetchReadRandom(Blackhole bh) throws IOException {
     long offset = ThreadLocalRandom.current().nextLong(accessRange - prefetchLength);
     inputNoPrefetch.seek(offset);
-    bh.consume(inputNoPrefetch.readLong());
+    int remaining = prefetchLength;
+    while (remaining > 0) {
+      int toRead = Math.min(READ_CHUNK, remaining);
+      inputNoPrefetch.readBytes(readBuf, 0, toRead);
+      remaining -= toRead;
+    }
+    bh.consume(readBuf);
   }
 }
