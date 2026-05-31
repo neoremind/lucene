@@ -111,6 +111,7 @@ public class PrefetchBenchmark {
     pb.inheritIO();
     Process p = pb.start();
     p.waitFor();
+    System.out.println("Clearing page cache done");
   }
 
   @TearDown(Level.Trial)
