@@ -59,7 +59,7 @@ import org.openjdk.jmh.infra.Blackhole;
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
 @State(Scope.Benchmark)
 @Warmup(iterations = 1, time = 3)
-@Measurement(iterations = 2, time = 5)
+@Measurement(iterations = 3, time = 6)
 @Fork(
     value = 1,
     jvmArgsAppend = {"-Xmx2g", "-Xms2g", "-XX:+AlwaysPreTouch"})
@@ -74,9 +74,20 @@ public class PrefetchBenchmark {
   @Param({"4"})
   public int fileSizeGB;
 
-  /** Number of bytes to prefetch per call. */
-  @Param({"8192", "16384", "65536"})
+  @Param({"4096", "8192", "16384"})
   public int prefetchLength;
+
+  /**
+   * Percentage of reads that hit cold (uncached) pages. E.g., 10 means ~10% of reads go to random
+   * cold offsets, ~90% hit the hot region. Uses probabilistic selection to simulate the irregular
+   * warm/cold pattern of real HNSW traversal.
+   */
+  @Param({"10", "50", "90"})
+  public int coldReadPct;
+
+  /** Hot-spot region size in MB. Reads within this region stay cached in page cache. */
+  @Param({"16"})
+  public int hotRegionMB;
 
   private MMapDirectory dir;
   private IndexInput inputRandom;
@@ -84,6 +95,7 @@ public class PrefetchBenchmark {
   private IndexInput inputSequential;
   private IndexInput inputNoPrefetch;
   private long accessRange;
+  private long hotRegionSize;
   private byte[] readBuf;
 
   private static final int READ_CHUNK = 4096;
@@ -94,6 +106,7 @@ public class PrefetchBenchmark {
     dir.setReadAdvice(MMapDirectory.ADVISE_BY_CONTEXT);
 
     accessRange = (long) fileSizeGB * 1024L * 1024L * 1024L;
+    hotRegionSize = (long) hotRegionMB * 1024L * 1024L;
 
     inputRandom = dir.openInput(fileName, IOContext.DEFAULT.withHints(DataAccessHint.RANDOM));
     inputNormal = dir.openInput(fileName, IOContext.DEFAULT);
@@ -111,7 +124,7 @@ public class PrefetchBenchmark {
     pb.inheritIO();
     Process p = pb.start();
     p.waitFor();
-    System.out.println("Clearing page cache done");
+    System.out.println("[PrefetchBenchmark] Clearing page cache done");
   }
 
   @TearDown(Level.Trial)
@@ -126,7 +139,13 @@ public class PrefetchBenchmark {
 
   @Benchmark
   public void prefetchRandomThenRead(Blackhole bh) throws IOException {
-    long offset = ThreadLocalRandom.current().nextLong(accessRange - prefetchLength);
+    ThreadLocalRandom r = ThreadLocalRandom.current();
+    long offset;
+    if (r.nextInt(100) < coldReadPct) {
+      offset = r.nextLong(accessRange - prefetchLength);
+    } else {
+      offset = r.nextLong(hotRegionSize - prefetchLength);
+    }
     bh.consume(inputRandom.prefetch(offset, prefetchLength));
     inputRandom.seek(offset);
     int remaining = prefetchLength;
@@ -140,7 +159,13 @@ public class PrefetchBenchmark {
 
   @Benchmark
   public void prefetchNormalThenRead(Blackhole bh) throws IOException {
-    long offset = ThreadLocalRandom.current().nextLong(accessRange - prefetchLength);
+    ThreadLocalRandom r = ThreadLocalRandom.current();
+    long offset;
+    if (r.nextInt(100) < coldReadPct) {
+      offset = r.nextLong(accessRange - prefetchLength);
+    } else {
+      offset = r.nextLong(hotRegionSize - prefetchLength);
+    }
     bh.consume(inputNormal.prefetch(offset, prefetchLength));
     inputNormal.seek(offset);
     int remaining = prefetchLength;
@@ -154,7 +179,13 @@ public class PrefetchBenchmark {
 
   @Benchmark
   public void prefetchSequentialThenRead(Blackhole bh) throws IOException {
-    long offset = ThreadLocalRandom.current().nextLong(accessRange - prefetchLength);
+    ThreadLocalRandom r = ThreadLocalRandom.current();
+    long offset;
+    if (r.nextInt(100) < coldReadPct) {
+      offset = r.nextLong(accessRange - prefetchLength);
+    } else {
+      offset = r.nextLong(hotRegionSize - prefetchLength);
+    }
     bh.consume(inputSequential.prefetch(offset, prefetchLength));
     inputSequential.seek(offset);
     int remaining = prefetchLength;
@@ -168,7 +199,13 @@ public class PrefetchBenchmark {
 
   @Benchmark
   public void noPrefetchReadRandom(Blackhole bh) throws IOException {
-    long offset = ThreadLocalRandom.current().nextLong(accessRange - prefetchLength);
+    ThreadLocalRandom r = ThreadLocalRandom.current();
+    long offset;
+    if (r.nextInt(100) < coldReadPct) {
+      offset = r.nextLong(accessRange - prefetchLength);
+    } else {
+      offset = r.nextLong(hotRegionSize - prefetchLength);
+    }
     inputNoPrefetch.seek(offset);
     int remaining = prefetchLength;
     while (remaining > 0) {
