@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
@@ -27,6 +28,7 @@ import org.apache.lucene.document.TextField;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.util.IOUtils;
+import org.apache.lucene.util.InfoStream;
 
 public class TestIndexOptions extends LuceneTestCase {
 
@@ -168,7 +170,10 @@ public class TestIndexOptions extends LuceneTestCase {
 
   public void testSameFrozenFieldTypeAcrossManyDocuments() throws IOException {
     Directory dir = newDirectory();
-    IndexWriter w = new IndexWriter(dir, newIndexWriterConfig());
+    AtomicInteger slowPathCount = new AtomicInteger();
+    IndexWriterConfig iwc = newIndexWriterConfig();
+    iwc.setInfoStream(slowPathCounter(slowPathCount));
+    IndexWriter w = new IndexWriter(dir, iwc);
     FieldType ft = new FieldType(TextField.TYPE_STORED);
     ft.setIndexOptions(IndexOptions.DOCS_AND_FREQS);
     ft.freeze();
@@ -182,13 +187,17 @@ public class TestIndexOptions extends LuceneTestCase {
       assertEquals(
           IndexOptions.DOCS_AND_FREQS, r.getFieldInfos().fieldInfo("foo").getIndexOptions());
     }
+    assertEquals(0, slowPathCount.get());
     w.close();
     dir.close();
   }
 
   public void testMultiValuedFieldSameFrozenFieldType() throws IOException {
     Directory dir = newDirectory();
-    IndexWriter w = new IndexWriter(dir, newIndexWriterConfig());
+    AtomicInteger slowPathCount = new AtomicInteger();
+    IndexWriterConfig iwc = newIndexWriterConfig();
+    iwc.setInfoStream(slowPathCounter(slowPathCount));
+    IndexWriter w = new IndexWriter(dir, iwc);
     FieldType ft = new FieldType(TextField.TYPE_STORED);
     ft.freeze();
     Document doc = new Document();
@@ -200,13 +209,17 @@ public class TestIndexOptions extends LuceneTestCase {
       assertEquals(1, r.maxDoc());
       assertEquals(3, r.storedFields().document(0).getValues("foo").length);
     }
+    assertEquals(0, slowPathCount.get());
     w.close();
     dir.close();
   }
 
   public void testMultiValuedFieldMixedFrozenAndUnfrozenCompatibleTypes() throws IOException {
     Directory dir = newDirectory();
-    IndexWriter w = new IndexWriter(dir, newIndexWriterConfig());
+    AtomicInteger slowPathCount = new AtomicInteger();
+    IndexWriterConfig iwc = newIndexWriterConfig();
+    iwc.setInfoStream(slowPathCounter(slowPathCount));
+    IndexWriter w = new IndexWriter(dir, iwc);
     FieldType frozenFt = new FieldType(TextField.TYPE_STORED);
     frozenFt.freeze();
     // Unfrozen copy with same settings
@@ -219,6 +232,7 @@ public class TestIndexOptions extends LuceneTestCase {
       assertEquals(1, r.maxDoc());
       assertEquals(2, r.storedFields().document(0).getValues("foo").length);
     }
+    assertEquals(0, slowPathCount.get());
     w.close();
     dir.close();
   }
@@ -272,7 +286,10 @@ public class TestIndexOptions extends LuceneTestCase {
 
   public void testFrozenFieldTypeCacheRestabilizes() throws IOException {
     Directory dir = newDirectory();
-    IndexWriter w = new IndexWriter(dir, newIndexWriterConfig());
+    AtomicInteger slowPathCount = new AtomicInteger();
+    IndexWriterConfig iwc = newIndexWriterConfig();
+    iwc.setInfoStream(slowPathCounter(slowPathCount));
+    IndexWriter w = new IndexWriter(dir, iwc);
     // Two distinct frozen FieldType instances with identical settings
     FieldType ftA = new FieldType(TextField.TYPE_STORED);
     ftA.freeze();
@@ -295,6 +312,11 @@ public class TestIndexOptions extends LuceneTestCase {
     try (LeafReader r = getOnlyLeafReader(DirectoryReader.open(w))) {
       assertEquals(30, r.maxDoc());
     }
+    // **************************************
+    // 2 hits: one at doc 10 (A→B switch) and one at doc 20 (B→A switch)
+    // Without the fix, this would be 20 (docs 10–29 all hit slow path)
+    // **************************************
+    assertEquals(2, slowPathCount.get());
     w.close();
     dir.close();
   }
@@ -331,10 +353,51 @@ public class TestIndexOptions extends LuceneTestCase {
     dir.close();
   }
 
+  public void testMultiValuedFieldDeoptimizesWhenCacheActive() throws IOException {
+    Directory dir = newDirectory();
+    AtomicInteger slowPathCount = new AtomicInteger();
+    IndexWriterConfig iwc = newIndexWriterConfig();
+    iwc.setInfoStream(slowPathCounter(slowPathCount));
+    IndexWriter w = new IndexWriter(dir, iwc);
+    FieldType ftA = new FieldType(TextField.TYPE_STORED);
+    ftA.freeze();
+    FieldType ftB = new FieldType(TextField.TYPE_STORED); // same schema, different instance
+    ftB.freeze();
+    // Doc 0
+    w.addDocument(Collections.singleton(new Field("foo", "val0", ftA)));
+    // Doc 1
+    Document doc = new Document();
+    doc.add(new Field("foo", "val1a", ftA));
+    doc.add(new Field("foo", "val1b", ftB));
+    w.addDocument(doc);
+    // Doc 2
+    w.addDocument(Collections.singleton(new Field("foo", "val2", ftB)));
+    // Doc 3
+    w.addDocument(Collections.singleton(new Field("foo", "val3", ftB)));
+    try (LeafReader r = getOnlyLeafReader(DirectoryReader.open(w))) {
+      assertEquals(4, r.maxDoc());
+    }
+    assertEquals(2, slowPathCount.get());
+    // Doc 4: multi-valued with incompatible frozen type — must fail
+    FieldType ftC = new FieldType(TextField.TYPE_STORED);
+    ftC.setStoreTermVectors(true);
+    ftC.freeze();
+    Document doc4 = new Document();
+    doc4.add(new Field("foo", "val4a", ftB));
+    doc4.add(new Field("foo", "val4b", ftC));
+    IllegalArgumentException e =
+        expectThrows(IllegalArgumentException.class, () -> w.addDocument(doc4));
+    assertTrue(e.getMessage(), e.getMessage().contains("store term vector"));
+    w.close();
+    dir.close();
+  }
+
   public void testFrozenFieldTypeInDocumentBlock() throws IOException {
     Directory dir = newDirectory();
+    AtomicInteger slowPathCount = new AtomicInteger();
     IndexWriterConfig iwc = newIndexWriterConfig();
     iwc.setParentField("__parent");
+    iwc.setInfoStream(slowPathCounter(slowPathCount));
     IndexWriter w = new IndexWriter(dir, iwc);
     FieldType ft = new FieldType(TextField.TYPE_STORED);
     ft.freeze();
@@ -351,7 +414,28 @@ public class TestIndexOptions extends LuceneTestCase {
     try (LeafReader r = getOnlyLeafReader(DirectoryReader.open(w))) {
       assertEquals(6, r.maxDoc());
     }
+    assertEquals(0, slowPathCount.get());
     w.close();
     dir.close();
+  }
+
+  /** Returns an InfoStream that counts "schema validated (slow path)" messages. */
+  private static InfoStream slowPathCounter(AtomicInteger counter) {
+    return new InfoStream() {
+      @Override
+      public void close() {}
+
+      @Override
+      public boolean isEnabled(String component) {
+        return true;
+      }
+
+      @Override
+      public void message(String component, String message) {
+        if (message.contains("schema validated (slow path)")) {
+          counter.incrementAndGet();
+        }
+      }
+    };
   }
 }
