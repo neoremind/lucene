@@ -144,6 +144,16 @@ public class WriteStringBenchmark {
     bh.consume(output.size());
   }
 
+  @Benchmark
+  public void newImpl(Blackhole bh) {
+    // New implementation: single-pass encode with pre-computed VInt size
+    ByteBuffersDataOutput output = new ByteBuffersDataOutput();
+    for (int i = 0; i < stringsPerInvocation; i++) {
+      output.writeStringV2(testStrings[i % STRING_POOL_SIZE]);
+    }
+    bh.consume(output.size());
+  }
+
   // --- Old implementation (pre-PR#13863) ---
 
   private static final int MAX_CHARS_PER_WINDOW = 1024;

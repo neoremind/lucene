@@ -431,6 +431,45 @@ public final class ByteBuffersDataOutput extends DataOutput implements Accountab
     }
   }
 
+  /**
+   * Alternative writeString that uses calcVIntSizeForUTF8Length to determine VInt prefix size
+   * without a full length scan, then encodes the string in a single pass and backfills the VInt.
+   * Falls back to writeLongString when the string doesn't fit in the current block.
+   */
+  public void writeStringV2(String v) {
+    try {
+      final int charCount = v.length();
+      final int vIntSize = UnicodeUtil.calcVIntSizeForUTF8Length(v, 0, charCount);
+      final int worstCase = vIntSize + charCount * UnicodeUtil.MAX_UTF8_BYTES_PER_CHAR;
+
+      ByteBuffer currentBlock = this.currentBlock;
+      if (currentBlock.hasArray() && currentBlock.remaining() >= worstCase) {
+        // Fast path: encode directly into buffer with VInt gap, then backfill
+        byte[] array = currentBlock.array();
+        int off = currentBlock.arrayOffset() + currentBlock.position();
+        int encodedEnd = UnicodeUtil.UTF16toUTF8(v, 0, charCount, array, off + vIntSize);
+        int byteLen = encodedEnd - (off + vIntSize);
+        // Backfill VInt directly into the reserved gap
+        int vOff = off;
+        int val = byteLen;
+        while ((val & ~0x7F) != 0) {
+          array[vOff++] = (byte) ((val & 0x7F) | 0x80);
+          val >>>= 7;
+        }
+        array[vOff] = (byte) val;
+        currentBlock.position(currentBlock.position() + vIntSize + byteLen);
+      } else {
+        // Slow path: compute exact length, write VInt, then chunked encode
+        final int byteLen = UnicodeUtil.calcUTF16toUTF8Length(v, 0, charCount);
+        writeVInt(byteLen);
+        writeLongString(byteLen, v);
+      }
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
+
   @Override
   public void writeMapOfStrings(Map<String, String> map) {
     try {

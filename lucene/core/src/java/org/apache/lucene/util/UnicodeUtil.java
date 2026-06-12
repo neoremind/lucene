@@ -272,6 +272,62 @@ public final class UnicodeUtil {
     return res;
   }
 
+  /**
+   * Calculates the number of bytes needed for the VInt encoding of the UTF-8 byte length of the
+   * given CharSequence. Uses charCount bounds to avoid scanning when possible, and performs
+   * early-exit partial scanning for ambiguous ranges.
+   *
+   * <p>VInt sizes: 1 byte (0–127), 2 bytes (128–16383), 3 bytes (16384–2097151).
+   *
+   * @return the number of bytes needed for the VInt prefix (1, 2, or 3 in practice)
+   */
+  public static int calcVIntSizeForUTF8Length(
+      final CharSequence s, final int offset, final int len) {
+    if (len <= 42) return 1; // max byteLen = 42*3 = 126 < 128
+    if (len >= 128 && len <= 5461) return 2; // min=128, max=5461*3=16383
+    if (len >= 16384 && len <= 699050) return 3; // min=16384, max=699050*3=2097150
+
+    // Ambiguous ranges: scan with early exit
+    final int threshold;
+    final int result;
+    if (len < 128) {
+      // charCount 43–127: VInt is 1 if byteLen < 128, else 2
+      threshold = 128;
+      result = 1;
+    } else {
+      // charCount 5462–16383: VInt is 2 if byteLen < 16384, else 3
+      threshold = 16384;
+      result = 2;
+    }
+
+    final int end = offset + len;
+    int byteLen = 0;
+    for (int i = offset; i < end; i++) {
+      final int code = (int) s.charAt(i);
+      if (code < 0x80) {
+        byteLen++;
+      } else if (code < 0x800) {
+        byteLen += 2;
+      } else if (code < 0xD800 || code > 0xDFFF) {
+        byteLen += 3;
+      } else {
+        if (code < 0xDC00 && i + 1 < end) {
+          int next = (int) s.charAt(i + 1);
+          if (next >= 0xDC00 && next <= 0xDFFF) {
+            byteLen += 4;
+            i++;
+          } else {
+            byteLen += 3;
+          }
+        } else {
+          byteLen += 3;
+        }
+      }
+      if (byteLen >= threshold) return result + 1;
+    }
+    return result;
+  }
+
   // Only called from assert
   /*
   private static boolean matches(char[] source, int offset, int length, byte[] result, int upto) {
