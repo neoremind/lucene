@@ -54,7 +54,20 @@ import org.openjdk.jmh.infra.Blackhole;
     jvmArgsAppend = {"-Xmx1g", "-Xms1g", "-XX:+AlwaysPreTouch"})
 public class WriteStringBenchmark {
 
-  @Param({"ascii_short", "ascii_medium", "ascii_long", "cjk_short", "cjk_medium", "latin_ext_medium"})
+  @Param({
+      "ascii_short",
+      "ascii_medium",
+      "ascii_long",
+      "ascii_vlarge",
+      "cjk_short",
+      "cjk_medium",
+      "cjk_long",
+      "cjk_vlarge",
+      "latin_ext_short",
+      "latin_ext_medium",
+      "latin_ext_long",
+      "latin_ext_vlarge"
+  })
   public String stringType;
 
   /** Pre-generated strings to write, cycled through during each invocation. */
@@ -94,6 +107,13 @@ public class WriteStringBenchmark {
         }
         avgBytesPerString = 1024;
         break;
+      case "ascii_vlarge":
+        // ~8192 bytes avg
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomAscii(random, 7000 + random.nextInt(2400));
+        }
+        avgBytesPerString = 8192;
+        break;
       case "cjk_short":
         // ~10 chars CJK = ~30 UTF-8 bytes (3 bytes/char), with rare surrogates (~1%)
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
@@ -108,12 +128,47 @@ public class WriteStringBenchmark {
         }
         avgBytesPerString = 300;
         break;
+      case "cjk_long":
+        // ~500 chars CJK = ~1500 UTF-8 bytes
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomCjk(random, 400 + random.nextInt(200));
+        }
+        avgBytesPerString = 1500;
+        break;
+      case "cjk_vlarge":
+        // ~3000 chars CJK = ~9000 UTF-8 bytes
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomCjk(random, 2500 + random.nextInt(1000));
+        }
+        avgBytesPerString = 9000;
+        break;
+      case "latin_ext_short":
+        // ~10 chars Latin extended = ~20 UTF-8 bytes
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomLatinExtended(random, 5 + random.nextInt(15));
+        }
+        avgBytesPerString = 20;
+        break;
       case "latin_ext_medium":
         // ~100 chars Latin extended (Cyrillic, Greek, accented) = ~200 UTF-8 bytes (2 bytes/char)
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
           testStrings[i] = randomLatinExtended(random, 50 + random.nextInt(100));
         }
         avgBytesPerString = 200;
+        break;
+      case "latin_ext_long":
+        // ~500 chars Latin extended = ~1000 UTF-8 bytes
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomLatinExtended(random, 400 + random.nextInt(200));
+        }
+        avgBytesPerString = 1000;
+        break;
+      case "latin_ext_vlarge":
+        // ~3000 chars Latin extended = ~6000 UTF-8 bytes
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomLatinExtended(random, 2500 + random.nextInt(1000));
+        }
+        avgBytesPerString = 6000;
         break;
       default:
         throw new IllegalArgumentException("Unknown stringType: " + stringType);
