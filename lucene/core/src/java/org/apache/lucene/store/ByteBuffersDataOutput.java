@@ -446,17 +446,13 @@ public final class ByteBuffersDataOutput extends DataOutput implements Accountab
       if (currentBlock.hasArray() && currentBlock.remaining() >= worstCase) {
         // Fast path: encode directly into buffer with VInt gap, then backfill
         byte[] array = currentBlock.array();
+        int startingPos = currentBlock.position();
         int off = currentBlock.arrayOffset() + currentBlock.position();
         int encodedEnd = UnicodeUtil.UTF16toUTF8(v, 0, charCount, array, off + vIntSize);
         int byteLen = encodedEnd - (off + vIntSize);
         // Backfill VInt directly into the reserved gap
-        int vOff = off;
-        int val = byteLen;
-        while ((val & ~0x7F) != 0) {
-          array[vOff++] = (byte) ((val & 0x7F) | 0x80);
-          val >>>= 7;
-        }
-        array[vOff] = (byte) val;
+        currentBlock.position(startingPos);
+        writeVInt(byteLen);
         currentBlock.position(currentBlock.position() + vIntSize + byteLen);
       } else {
         // Slow path: compute exact length, write VInt, then chunked encode
