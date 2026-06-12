@@ -24,6 +24,7 @@ dependencies {
   moduleImplementation project(':lucene:sandbox')
   moduleTestImplementation project(':lucene:test-framework')
 
+  moduleImplementation deps.randomizedtesting.runner
   moduleImplementation deps.jmh.core
   annotationProcessor deps.jmh.annprocess
 }

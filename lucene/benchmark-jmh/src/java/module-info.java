@@ -26,6 +26,7 @@ module org.apache.lucene.benchmark.jmh {
   requires org.apache.lucene.expressions;
   requires org.apache.lucene.join;
   requires org.apache.lucene.sandbox;
+  requires randomizedtesting.runner;
   requires commons.math3;
 
   exports org.apache.lucene.benchmark.jmh;
