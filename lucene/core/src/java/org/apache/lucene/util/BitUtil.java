@@ -302,6 +302,19 @@ public final class BitUtil {
     return ((l >>> 1) ^ -(l & 1));
   }
 
+
+  /**
+   * Returns the number of bytes required to encode the value as a variable-length integer (VInt).
+   */
+  public static int vIntSize(int i) {
+    int size = 1;
+    while ((i & ~0x7F) != 0) {
+      size++;
+      i >>>= 7;
+    }
+    return size;
+  }
+
   /**
    * Return true if, and only if, the provided integer - treated as an unsigned integer - is either
    * 0 or a power of two.

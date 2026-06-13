@@ -272,6 +272,79 @@ public final class UnicodeUtil {
     return res;
   }
 
+  /** Max charCount where VInt is guaranteed 1 byte: 42 * 3 = 126 &lt; 128 */
+  private static final int MAX_CHARS_FOR_1_BYTE_VINT = 127 / MAX_UTF8_BYTES_PER_CHAR;
+
+  /** Min charCount where byteLen &gt;= 128, guaranteeing VInt is at least 2 bytes */
+  private static final int MIN_CHARS_FOR_2_BYTE_VINT = 128;
+
+  /** Max charCount where VInt is guaranteed at most 2 bytes: 5461 * 3 = 16383 */
+  private static final int MAX_CHARS_FOR_2_BYTE_VINT = 16383 / MAX_UTF8_BYTES_PER_CHAR;
+
+  /** Min charCount where byteLen &gt;= 16384, guaranteeing VInt is at least 3 bytes */
+  private static final int MIN_CHARS_FOR_3_BYTE_VINT = 16384;
+
+  /** Max charCount where VInt is guaranteed at most 3 bytes: 699050 * 3 = 2097150 */
+  private static final int MAX_CHARS_FOR_3_BYTE_VINT = 2097151 / MAX_UTF8_BYTES_PER_CHAR;
+
+  /**
+   * Calculates the number of bytes needed for the VInt encoding of the UTF-8 byte length of the
+   * given CharSequence. Uses charCount bounds to avoid scanning when possible, and performs
+   * early-exit partial scanning for ambiguous ranges.
+   *
+   * <p>VInt sizes: 1 byte (0–127), 2 bytes (128–16383), 3 bytes (16384–2097151).
+   *
+   * @return the number of bytes needed for the VInt prefix (1, 2, or 3 in practice)
+   */
+  public static int calcVIntSizeForUTF8Length(
+      final CharSequence s, final int offset, final int len) {
+    if (len <= MAX_CHARS_FOR_1_BYTE_VINT) return 1;
+    if (len >= MIN_CHARS_FOR_2_BYTE_VINT && len <= MAX_CHARS_FOR_2_BYTE_VINT) return 2;
+    if (len >= MIN_CHARS_FOR_3_BYTE_VINT && len <= MAX_CHARS_FOR_3_BYTE_VINT) return 3;
+
+    // Ambiguous ranges: scan with early exit
+    final int threshold;
+    final int result;
+    if (len < MIN_CHARS_FOR_2_BYTE_VINT) {
+      // charCount in (MAX_CHARS_FOR_1_BYTE_VINT, MIN_CHARS_FOR_2_BYTE_VINT):
+      // VInt is 1 if byteLen < 128, else 2
+      threshold = 128;
+      result = 1;
+    } else {
+      // charCount in (MAX_CHARS_FOR_2_BYTE_VINT, MIN_CHARS_FOR_3_BYTE_VINT):
+      // VInt is 2 if byteLen < 16384, else 3
+      threshold = 16384;
+      result = 2;
+    }
+
+    final int end = offset + len;
+    int byteLen = 0;
+    for (int i = offset; i < end; i++) {
+      final int code = (int) s.charAt(i);
+      if (code < 0x80) {
+        byteLen++;
+      } else if (code < 0x800) {
+        byteLen += 2;
+      } else if (code < 0xD800 || code > 0xDFFF) {
+        byteLen += 3;
+      } else {
+        if (code < 0xDC00 && i + 1 < end) {
+          int next = (int) s.charAt(i + 1);
+          if (next >= 0xDC00 && next <= 0xDFFF) {
+            byteLen += 4;
+            i++;
+          } else {
+            byteLen += 3;
+          }
+        } else {
+          byteLen += 3;
+        }
+      }
+      if (byteLen >= threshold) return result + 1;
+    }
+    return result;
+  }
+
   // Only called from assert
   /*
   private static boolean matches(char[] source, int offset, int length, byte[] result, int upto) {

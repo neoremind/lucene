@@ -288,4 +288,78 @@ public class TestUnicodeUtil extends LuceneTestCase {
       assertEquals(len, UnicodeUtil.calcUTF16toUTF8Length(unicode, 0, unicode.length()));
     }
   }
+
+  public void testCalcVIntSizeForUTF8Length() {
+    // Test against the ground truth: compute actual UTF-8 length, then count VInt bytes
+    int num = atLeast(5000);
+    for (int i = 0; i < num; i++) {
+      String unicode = TestUtil.randomUnicodeString(random());
+      int charCount = unicode.length();
+      int actualByteLen = UnicodeUtil.calcUTF16toUTF8Length(unicode, 0, charCount);
+      int expectedVIntSize = BitUtil.vIntSize(actualByteLen);
+      int computedVIntSize = UnicodeUtil.calcVIntSizeForUTF8Length(unicode, 0, charCount);
+      assertEquals(
+          "charCount=" + charCount + ", byteLen=" + actualByteLen,
+          expectedVIntSize,
+          computedVIntSize);
+    }
+  }
+
+  public void testCalcVIntSizeForUTF8LengthBoundaries() {
+    // Test specific boundary conditions
+
+    // charCount <= 42: always 1 byte VInt (max byteLen = 42*3 = 126 < 128)
+    String ascii42 = "a".repeat(42);
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length(ascii42, 0, 42));
+
+    // charCount = 43 with all ASCII: byteLen = 43, still 1 byte VInt
+    String ascii43 = "a".repeat(43);
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length(ascii43, 0, 43));
+
+    // charCount = 43 with all 3-byte chars: byteLen = 129, should be 2 byte VInt
+    String cjk43 = "\u4e00".repeat(43);
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length(cjk43, 0, 43));
+
+    // charCount = 128: byteLen >= 128 guaranteed, so VInt is 2 bytes
+    String ascii128 = "a".repeat(128);
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length(ascii128, 0, 128));
+
+    // charCount = 5461: max byteLen = 5461*3 = 16383, VInt is 2 bytes
+    String cjk5461 = "\u4e00".repeat(5461);
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length(cjk5461, 0, 5461));
+
+    // charCount = 5462 with all 3-byte chars: byteLen = 16386 > 16383, VInt is 3 bytes
+    String cjk5462 = "\u4e00".repeat(5462);
+    assertEquals(3, UnicodeUtil.calcVIntSizeForUTF8Length(cjk5462, 0, 5462));
+
+    // charCount = 5462 with all ASCII: byteLen = 5462, VInt is 2 bytes
+    String ascii5462 = "a".repeat(5462);
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length(ascii5462, 0, 5462));
+
+    // Empty string
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length("", 0, 0));
+  }
+
+  public void testCalcVIntSizeForUTF8LengthWithSurrogates() {
+    // Surrogate pairs: 2 chars → 4 UTF-8 bytes
+    // 21 surrogate pairs = 42 chars, byteLen = 84, VInt = 1 byte
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < 21; i++) {
+      sb.append("\uD83D\uDE00"); // 😀
+    }
+    String emoji21 = sb.toString();
+    assertEquals(42, emoji21.length());
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length(emoji21, 0, 42));
+
+    // 50 surrogate pairs = 100 chars, byteLen = 200, VInt = 2 bytes
+    sb = new StringBuilder();
+    for (int i = 0; i < 50; i++) {
+      sb.append("\uD83D\uDE00");
+    }
+    String emoji50 = sb.toString();
+    assertEquals(100, emoji50.length());
+    int actualByteLen = UnicodeUtil.calcUTF16toUTF8Length(emoji50, 0, 100);
+    assertEquals(200, actualByteLen);
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length(emoji50, 0, 100));
+  }
 }

@@ -293,4 +293,80 @@ public final class TestByteBuffersDataOutput extends BaseDataOutputTestCase<Byte
     return buffers.stream().mapToLong(ByteBuffer::capacity).sum()
         + buffers.size() * RamUsageEstimator.NUM_BYTES_OBJECT_REF;
   }
+
+  /**
+   * Tests writeString with various string sizes and content types, verifying correctness by
+   * round-tripping through writeString/readString.
+   */
+  public void testWriteStringRoundTrip() throws IOException {
+    ByteBuffersDataOutput out = new ByteBuffersDataOutput();
+
+    // Short ASCII (charCount <= 42, VInt guaranteed 1 byte)
+    String shortAscii = "hello world";
+    out.writeString(shortAscii);
+
+    // Medium ASCII in ambiguous VInt range (charCount 43-127)
+    String mediumAscii = "a".repeat(100);
+    out.writeString(mediumAscii);
+
+    // Long ASCII (charCount >= 128, VInt guaranteed 2 bytes)
+    String longAscii = "x".repeat(500);
+    out.writeString(longAscii);
+
+    // CJK (3-byte chars, exercises VInt size calculation)
+    String cjk = "\u4e2d\u6587\u5b57\u7b26\u4e32\u6d4b\u8bd5"; // 中文字符串测试
+    out.writeString(cjk);
+
+    // String with surrogate pairs (emoji)
+    String emoji = "Hello \uD83D\uDE00 World \uD83C\uDF1F!";
+    out.writeString(emoji);
+
+    // Large string that likely straddles block boundaries
+    String large = "\u0410".repeat(2000); // Cyrillic А, 2-byte UTF-8
+    out.writeString(large);
+
+    // Very large ASCII that exercises gray-zone logic
+    String vlarge = "Z".repeat(8000);
+    out.writeString(vlarge);
+
+    // Empty string
+    out.writeString("");
+
+    // Read back and verify
+    ByteBuffersDataInput in = out.toDataInput();
+    assertEquals(shortAscii, in.readString());
+    assertEquals(mediumAscii, in.readString());
+    assertEquals(longAscii, in.readString());
+    assertEquals(cjk, in.readString());
+    assertEquals(emoji, in.readString());
+    assertEquals(large, in.readString());
+    assertEquals(vlarge, in.readString());
+    assertEquals("", in.readString());
+  }
+
+  /**
+   * Randomized test that writes many strings with small blocks to stress block boundary and
+   * writeLongString fallback paths.
+   */
+  public void testWriteStringWithSmallBlocks() throws IOException {
+    // Use smallest possible block size to maximize boundary crossings
+    ByteBuffersDataOutput out =
+        new ByteBuffersDataOutput(
+            ByteBuffersDataOutput.LIMIT_MIN_BITS_PER_BLOCK, // 2-byte blocks!
+            ByteBuffersDataOutput.DEFAULT_MAX_BITS_PER_BLOCK,
+            ByteBuffersDataOutput.ALLOCATE_BB_ON_HEAP,
+            ByteBuffersDataOutput.NO_REUSE);
+
+    int num = atLeast(500);
+    String[] strings = new String[num];
+    for (int i = 0; i < num; i++) {
+      strings[i] = TestUtil.randomUnicodeString(random(), random().nextInt(200));
+      out.writeString(strings[i]);
+    }
+
+    ByteBuffersDataInput in = out.toDataInput();
+    for (int i = 0; i < num; i++) {
+      assertEquals("String at index " + i, strings[i], in.readString());
+    }
+  }
 }

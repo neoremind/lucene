@@ -415,6 +415,57 @@ public final class ByteBuffersDataOutput extends DataOutput implements Accountab
   public void writeString(String v) {
     try {
       final int charCount = v.length();
+      int requiredLen = 5 + charCount * UnicodeUtil.MAX_UTF8_BYTES_PER_CHAR;
+
+      ByteBuffer currentBlock = this.currentBlock;
+      int remaining = currentBlock.remaining();
+
+      int byteLen = -1;
+      int vIntSize = -1;
+
+      // If worst-case doesn't fit but there's still a chance, compute exact length
+      if (remaining < requiredLen && remaining >= 5 + charCount) {
+        byteLen = UnicodeUtil.calcUTF16toUTF8Length(v, 0, charCount);
+        vIntSize = BitUtil.vIntSize(byteLen);
+        requiredLen = vIntSize + byteLen;
+      }
+
+      if (currentBlock.hasArray() && remaining >= requiredLen) {
+        // Fast path: encode directly, backfill VInt
+        if (vIntSize == -1) {
+          vIntSize = UnicodeUtil.calcVIntSizeForUTF8Length(v, 0, charCount);
+        }
+        byte[] array = currentBlock.array();
+        int startingPos = currentBlock.position();
+        int off = currentBlock.arrayOffset() + startingPos;
+        int encodedEnd = UnicodeUtil.UTF16toUTF8(v, 0, charCount, array, off + vIntSize);
+        byteLen = encodedEnd - (off + vIntSize);
+        currentBlock.position(startingPos);
+        writeVInt(byteLen);
+        currentBlock.position(startingPos + vIntSize + byteLen);
+      } else {
+        // Slow path
+        if (byteLen == -1) {
+          byteLen = UnicodeUtil.calcUTF16toUTF8Length(v, 0, charCount);
+        }
+        writeVInt(byteLen);
+        writeLongString(byteLen, v);
+      }
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
+  /**
+   * Previous writeString implementation for benchmarking comparison. This is the exact logic from
+   * PR#13863: compute exact UTF-8 length, write VInt, then encode directly into the buffer's
+   * backing array or fall back to writeLongString.
+   *
+   * @lucene.internal For benchmarking only.
+   */
+  public void writeStringPrev(String v) {
+    try {
+      final int charCount = v.length();
       final int byteLen = UnicodeUtil.calcUTF16toUTF8Length(v, 0, charCount);
       writeVInt(byteLen);
       ByteBuffer currentBlock = this.currentBlock;
