@@ -439,30 +439,39 @@ public final class ByteBuffersDataOutput extends DataOutput implements Accountab
   public void writeStringV2(String v) {
     try {
       final int charCount = v.length();
-      int requiredLen = 5 + charCount * UnicodeUtil.MAX_UTF8_BYTES_PER_CHAR; // worst case with max VInt
+      int requiredLen = 5 + charCount * UnicodeUtil.MAX_UTF8_BYTES_PER_CHAR;
 
       ByteBuffer currentBlock = this.currentBlock;
       int remaining = currentBlock.remaining();
 
+      int byteLen = -1;
+      int vIntSize = -1;
+
       // If worst-case doesn't fit but there's still a chance, compute exact length
       if (remaining < requiredLen && remaining >= 5 + charCount) {
-        requiredLen = 5 + UnicodeUtil.calcUTF16toUTF8Length(v, 0, charCount);
+        byteLen = UnicodeUtil.calcUTF16toUTF8Length(v, 0, charCount);
+        vIntSize = countVInt(byteLen);
+        requiredLen = vIntSize + byteLen;
       }
 
       if (currentBlock.hasArray() && remaining >= requiredLen) {
-        // Fast path: compute exact VInt size, encode directly, backfill VInt
-        final int vIntSize = UnicodeUtil.calcVIntSizeForUTF8Length(v, 0, charCount);
+        // Fast path: encode directly, backfill VInt
+        if (vIntSize == -1) {
+          vIntSize = UnicodeUtil.calcVIntSizeForUTF8Length(v, 0, charCount);
+        }
         byte[] array = currentBlock.array();
         int startingPos = currentBlock.position();
         int off = currentBlock.arrayOffset() + startingPos;
         int encodedEnd = UnicodeUtil.UTF16toUTF8(v, 0, charCount, array, off + vIntSize);
-        int byteLen = encodedEnd - (off + vIntSize);
+        byteLen = encodedEnd - (off + vIntSize);
         currentBlock.position(startingPos);
         writeVInt(byteLen);
         currentBlock.position(startingPos + vIntSize + byteLen);
       } else {
         // Slow path
-        final int byteLen = UnicodeUtil.calcUTF16toUTF8Length(v, 0, charCount);
+        if (byteLen == -1) {
+          byteLen = UnicodeUtil.calcUTF16toUTF8Length(v, 0, charCount);
+        }
         writeVInt(byteLen);
         writeLongString(byteLen, v);
       }
@@ -471,13 +480,13 @@ public final class ByteBuffersDataOutput extends DataOutput implements Accountab
     }
   }
 
-  public final int countVInt(int i) throws IOException {
-    int r = 0;
+  private static int countVInt(int i) {
+    int size = 1;
     while ((i & ~0x7F) != 0) {
-      r++;
+      size++;
       i >>>= 7;
     }
-    return ++r;
+    return size;
   }
 
   @Override
