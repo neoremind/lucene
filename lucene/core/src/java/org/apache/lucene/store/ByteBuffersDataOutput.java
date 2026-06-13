@@ -453,7 +453,7 @@ public final class ByteBuffersDataOutput extends DataOutput implements Accountab
         // Backfill VInt directly into the reserved gap
         currentBlock.position(startingPos);
         writeVInt(byteLen);
-        currentBlock.position(currentBlock.position() + vIntSize + byteLen);
+        currentBlock.position(startingPos + vIntSize + byteLen);
       } else {
         // Slow path: compute exact length, write VInt, then chunked encode
         final int byteLen = UnicodeUtil.calcUTF16toUTF8Length(v, 0, charCount);
