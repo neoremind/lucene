@@ -439,23 +439,29 @@ public final class ByteBuffersDataOutput extends DataOutput implements Accountab
   public void writeStringV2(String v) {
     try {
       final int charCount = v.length();
-      final int vIntSize = UnicodeUtil.calcVIntSizeForUTF8Length(v, 0, charCount);
-      final int worstCase = vIntSize + charCount * UnicodeUtil.MAX_UTF8_BYTES_PER_CHAR;
+      int requiredLen = 5 + charCount * UnicodeUtil.MAX_UTF8_BYTES_PER_CHAR; // worst case with max VInt
 
       ByteBuffer currentBlock = this.currentBlock;
-      if (currentBlock.hasArray() && currentBlock.remaining() >= worstCase) {
-        // Fast path: encode directly into buffer with VInt gap, then backfill
+      int remaining = currentBlock.remaining();
+
+      // If worst-case doesn't fit but there's still a chance, compute exact length
+      if (remaining < requiredLen && remaining >= 5 + charCount) {
+        requiredLen = 5 + UnicodeUtil.calcUTF16toUTF8Length(v, 0, charCount);
+      }
+
+      if (currentBlock.hasArray() && remaining >= requiredLen) {
+        // Fast path: compute exact VInt size, encode directly, backfill VInt
+        final int vIntSize = UnicodeUtil.calcVIntSizeForUTF8Length(v, 0, charCount);
         byte[] array = currentBlock.array();
         int startingPos = currentBlock.position();
-        int off = currentBlock.arrayOffset() + currentBlock.position();
+        int off = currentBlock.arrayOffset() + startingPos;
         int encodedEnd = UnicodeUtil.UTF16toUTF8(v, 0, charCount, array, off + vIntSize);
         int byteLen = encodedEnd - (off + vIntSize);
-        // Backfill VInt directly into the reserved gap
         currentBlock.position(startingPos);
         writeVInt(byteLen);
         currentBlock.position(startingPos + vIntSize + byteLen);
       } else {
-        // Slow path: compute exact length, write VInt, then chunked encode
+        // Slow path
         final int byteLen = UnicodeUtil.calcUTF16toUTF8Length(v, 0, charCount);
         writeVInt(byteLen);
         writeLongString(byteLen, v);
@@ -465,6 +471,14 @@ public final class ByteBuffersDataOutput extends DataOutput implements Accountab
     }
   }
 
+  public final int countVInt(int i) throws IOException {
+    int r = 0;
+    while ((i & ~0x7F) != 0) {
+      r++;
+      i >>>= 7;
+    }
+    return ++r;
+  }
 
   @Override
   public void writeMapOfStrings(Map<String, String> map) {
