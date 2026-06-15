@@ -288,4 +288,240 @@ public class TestUnicodeUtil extends LuceneTestCase {
       assertEquals(len, UnicodeUtil.calcUTF16toUTF8Length(unicode, 0, unicode.length()));
     }
   }
+
+  public void testCalcVIntSizeForUTF8Length() {
+    // Test against the ground truth: compute actual UTF-8 length, then count VInt bytes
+    int num = atLeast(50000);
+    for (int i = 0; i < num; i++) {
+      String unicode = TestUtil.randomUnicodeString(random());
+      int charCount = unicode.length();
+      int actualByteLen = UnicodeUtil.calcUTF16toUTF8Length(unicode, 0, charCount);
+      int expectedVIntSize = BitUtil.vIntSize(actualByteLen);
+      int computedVIntSize = UnicodeUtil.calcVIntSizeForUTF8Length(unicode, 0, charCount);
+      assertEquals(
+          "charCount=" + charCount + ", byteLen=" + actualByteLen,
+          expectedVIntSize,
+          computedVIntSize);
+    }
+  }
+
+  public void testCalcVIntSizeForUTF8LengthBoundaries() {
+    // === 1-byte VInt boundary (byteLen 0–127) ===
+
+    // charCount <= 42, 1-byte VInt
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length("", 0, 0));
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length("a", 0, 1));
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(42), 0, 42));
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length("\u4e00".repeat(42), 0, 42));
+
+    // charCount 43 with all ASCII, byteLen=43, 1-byte VInt
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(43), 0, 43));
+
+    // charCount 43 with all 3-byte chars, byteLen=129, 2-byte VInt
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length("\u4e00".repeat(43), 0, 43));
+
+    // 42 ASCII + 1 CJK = 43 chars, byteLen=42+3=45 < 128, 1-byte VInt
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(42) + "\u4e00", 0, 43));
+
+    // 40 ASCII + 30 latin-ext (2-byte) = 70 chars, byteLen=40+60=100 < 128, 1-byte VInt
+    assertEquals(
+        1, UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(40) + "\u00e9".repeat(30), 0, 70));
+
+    // 127 ASCII chars, byteLen=127, 1-byte VInt
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(127), 0, 127));
+
+    // 126 ASCII + 1 latin-ext = 127 chars, byteLen=126+2=128, 2-byte VInt
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(126) + "\u00e9", 0, 127));
+
+    // === 2-byte VInt boundary (byteLen 128–16383) ===
+
+    // charCount 128, 2-byte VInt
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(128), 0, 128));
+    assertEquals(
+        2, UnicodeUtil.calcVIntSizeForUTF8Length("\u4e00".repeat(128), 0, 128)); // byteLen=384
+
+    // charCount 5461, max byteLen = 5461*3 = 16383, 2-byte VInt
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length("\u4e00".repeat(5461), 0, 5461));
+    assertEquals(
+        2, UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(5461), 0, 5461)); // byteLen=5461
+
+    // All CJK, byteLen = 5462*3 = 16386 > 16383, 3-byte VInt
+    assertEquals(3, UnicodeUtil.calcVIntSizeForUTF8Length("\u4e00".repeat(5462), 0, 5462));
+    // All ASCII: byteLen = 5462, 2 byte VInt
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(5462), 0, 5462));
+
+    // 5000 ASCII + 462 CJK = 5462 chars, byteLen=5000+1386=6386, 2-byte VInt
+    assertEquals(
+        2, UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(5000) + "\u4e00".repeat(462), 0, 5462));
+
+    // 1000 ASCII + 5128 CJK = 6128 chars, byteLen=1000+15384=16384, 3-byte VInt
+    assertEquals(
+        3,
+        UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(1000) + "\u4e00".repeat(5128), 0, 6128));
+    // 1000 ASCII + 5128 CJK + 1 latin-ext = 6129 chars, byteLen=1000+15384+2=16386, 3-byte VInt
+    assertEquals(
+        3,
+        UnicodeUtil.calcVIntSizeForUTF8Length(
+            "a".repeat(999) + "\u4e00".repeat(5128) + "\u00e9".repeat(1), 0, 6128));
+    // 1002 ASCII + 5127 CJK = 6129 chars, byteLen=1002+15381=16383, 2-byte VInt
+    assertEquals(
+        2,
+        UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(1002) + "\u4e00".repeat(5127), 0, 6129));
+
+    // === 3-byte VInt boundary (byteLen 16384–2097151) ===
+
+    // charCount 16384: byteLen >= 16384 guaranteed, 3-byte VInt
+    assertEquals(3, UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(16384), 0, 16384));
+
+    // === Surrogate pairs ===
+
+    // 32 surrogate pairs = 64 chars, byteLen=128, 2-byte VInt
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < 32; i++) {
+      sb.append("\ud83d\ude00");
+    }
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length(sb.toString(), 0, 64));
+
+    // 31 surrogate pairs = 62 chars, byteLen=124, 1-byte VInt
+    sb = new StringBuilder();
+    for (int i = 0; i < 31; i++) {
+      sb.append("\ud83d\ude00");
+    }
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length(sb.toString(), 0, 62));
+
+    // Mix: 30 ASCII + 25 surrogate pairs (50 chars) = 80 chars, byteLen=30+100=130, 2-byte VInt
+    sb = new StringBuilder();
+    sb.append("a".repeat(30));
+    for (int i = 0; i < 25; i++) {
+      sb.append("\ud83d\ude00");
+    }
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length(sb.toString(), 0, 80));
+
+    // Mix: 120 ASCII + 3 surrogate pairs (6 chars) = 126 chars, byteLen=120+12=132, 2-byte VInt
+    sb = new StringBuilder();
+    sb.append("a".repeat(120));
+    for (int i = 0; i < 3; i++) {
+      sb.append("\ud83d\ude00");
+    }
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length(sb.toString(), 0, 126));
+
+    // Mix: 110 ASCII + 2 surrogate pairs (4 chars) + 9 ASCII = 123 chars, byteLen=110+8+9=127,
+    // 1-byte VInt
+    sb = new StringBuilder();
+    sb.append("a".repeat(110));
+    for (int i = 0; i < 2; i++) {
+      sb.append("\ud83d\ude00");
+    }
+    sb.append("a".repeat(9));
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length(sb.toString(), 0, 123));
+
+    // Mix: 110 ASCII + 2 surrogate pairs (4 chars) + 10 ASCII = 124 chars, byteLen=110+8+10=128,
+    // 2-byte VInt
+    sb = new StringBuilder();
+    sb.append("a".repeat(110));
+    for (int i = 0; i < 2; i++) {
+      sb.append("\ud83d\ude00");
+    }
+    sb.append("a".repeat(10));
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length(sb.toString(), 0, 124));
+
+    // Mix: 123 ASCII + 2 surrogate pairs (4 chars) = 127 chars, byteLen=123+8=131, 2-byte VInt
+    sb = new StringBuilder();
+    sb.append("a".repeat(123));
+    for (int i = 0; i < 2; i++) {
+      sb.append("\ud83d\ude00");
+    }
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length(sb.toString(), 0, 127));
+
+    // Mix: 125 ASCII + 1 surrogate pair (2 chars) = 127 chars, byteLen=125+4=129, 2-byte VInt
+    sb = new StringBuilder();
+    sb.append("a".repeat(125));
+    sb.append("\ud83d\ude00");
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length(sb.toString(), 0, 127));
+
+    // === Latin extended (2-byte) ===
+
+    // 64 latin-ext chars = 64 chars, byteLen=128, 2-byte VInt
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length("\u00e9".repeat(64), 0, 64));
+
+    // 63 latin-ext chars = 63 chars, byteLen=126, 1-byte VInt
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length("\u00e9".repeat(63), 0, 63));
+
+    // 50 ASCII + 39 latin-ext = 89 chars, byteLen=50+78=128, 2-byte VInt
+    assertEquals(
+        2, UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(50) + "\u00e9".repeat(39), 0, 89));
+
+    // === Unpaired/corrupt surrogates ===
+
+    // Orphan high surrogate at the end: 43 chars total, last is unpaired high surrogate
+    // 42 ASCII + 1 orphan high surrogate = 43 chars, byteLen=42+3=45, 1-byte VInt
+    assertEquals(45, UnicodeUtil.calcUTF16toUTF8Length("a".repeat(42) + "\ud800", 0, 43));
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(42) + "\ud800", 0, 43));
+
+    // Orphan low surrogate: treated as replacement char (3 bytes)
+    // 42 ASCII + 1 orphan low surrogate = 43 chars, byteLen=42+3=45, 1-byte VInt
+    assertEquals(45, UnicodeUtil.calcUTF16toUTF8Length("a".repeat(42) + "\udc00", 0, 43));
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(42) + "\udc00", 0, 43));
+
+    // Two consecutive high surrogates (invalid pair)
+    // 40 ASCII + 2 unpaired high surrogates = 42 chars, byteLen=40+6=46, 1-byte VInt
+    assertEquals(46, UnicodeUtil.calcUTF16toUTF8Length("a".repeat(40) + "\ud800\ud800", 0, 42));
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length("a".repeat(40) + "\ud800\ud800", 0, 42));
+
+    // 42 CJK + 1 orphan high surrogate = 43 chars, byteLen=126+3=129, 2-byte VInt
+    assertEquals(129, UnicodeUtil.calcUTF16toUTF8Length("\u4e00".repeat(42) + "\ud800", 0, 43));
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length("\u4e00".repeat(42) + "\ud800", 0, 43));
+
+    // High surrogate followed by non-low-surrogate (invalid pair)
+    // 41 CJK + high surrogate + ASCII = 43 chars, byteLen=123+3+1=127, 1-byte VInt
+    assertEquals(
+        127, UnicodeUtil.calcUTF16toUTF8Length("\u4e00".repeat(41) + "\ud800" + "a", 0, 43));
+    assertEquals(
+        1, UnicodeUtil.calcVIntSizeForUTF8Length("\u4e00".repeat(41) + "\ud800" + "a", 0, 43));
+  }
+
+  public void testCalcVIntSizeForUTF8LengthWithSurrogates() {
+    // 21 surrogate pairs = 42 chars, byteLen = 84, 1-byte VInt
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < 21; i++) {
+      sb.append("\ud83d\ude00"); // 😀
+    }
+    assertEquals(42, sb.length());
+    assertEquals(1, UnicodeUtil.calcVIntSizeForUTF8Length(sb.toString(), 0, 42));
+
+    // 32 pairs = 64 chars, byteLen = 128, 2-byte VInt
+    sb = new StringBuilder();
+    for (int i = 0; i < 32; i++) {
+      sb.append("\ud83d\ude00");
+    }
+    assertEquals(64, sb.length());
+    assertEquals(128, UnicodeUtil.calcUTF16toUTF8Length(sb.toString(), 0, 64));
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length(sb.toString(), 0, 64));
+
+    // 4096 pairs = 8192 chars, byteLen = 16384, 3-byte VInt
+    sb = new StringBuilder();
+    for (int i = 0; i < 4096; i++) {
+      sb.append("\ud83d\ude00");
+    }
+    assertEquals(8192, sb.length());
+    assertEquals(16384, UnicodeUtil.calcUTF16toUTF8Length(sb.toString(), 0, 8192));
+    assertEquals(3, UnicodeUtil.calcVIntSizeForUTF8Length(sb.toString(), 0, 8192));
+
+    // 4095 pairs = 8190 chars, byteLen = 16380, 2-byte VInt
+    sb = new StringBuilder();
+    for (int i = 0; i < 4095; i++) {
+      sb.append("\ud83d\ude00");
+    }
+    assertEquals(8190, sb.length());
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length(sb.toString(), 0, 8190));
+
+    // 3000 ASCII + 1096 pairs (2192 chars) = 5192 chars, byteLen = 3000 + 4384 = 7384, VInt 2 bytes
+    sb = new StringBuilder();
+    sb.append("a".repeat(3000));
+    for (int i = 0; i < 1096; i++) {
+      sb.append("\ud83d\ude00");
+    }
+    assertEquals(5192, sb.length());
+    assertEquals(2, UnicodeUtil.calcVIntSizeForUTF8Length(sb.toString(), 0, 5192));
+  }
 }

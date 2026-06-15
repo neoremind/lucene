@@ -29,6 +29,9 @@ public final class BitUtil {
 
   private BitUtil() {} // no instance
 
+  /** Maximum number of bytes required to encode an int as a VInt. */
+  public static final int MAX_VINT_SIZE = 5;
+
   /**
    * Native byte order.
    *
@@ -300,6 +303,18 @@ public final class BitUtil {
   /** Decode a long previously encoded with {@link #zigZagEncode(long)}. */
   public static long zigZagDecode(long l) {
     return ((l >>> 1) ^ -(l & 1));
+  }
+
+  /**
+   * Returns the number of bytes required to encode the value as a variable-length integer (VInt).
+   */
+  public static int vIntSize(int i) {
+    int size = 1;
+    while ((i & ~0x7F) != 0) {
+      size++;
+      i >>>= 7;
+    }
+    return size;
   }
 
   /**

@@ -20,6 +20,35 @@ import org.apache.lucene.tests.util.LuceneTestCase;
 
 public class TestBitUtil extends LuceneTestCase {
 
+  public void testVIntSize() {
+    // 1-byte VInt: values 0–127
+    assertEquals(1, BitUtil.vIntSize(0));
+    assertEquals(1, BitUtil.vIntSize(1));
+    assertEquals(1, BitUtil.vIntSize(127));
+
+    // 2-byte VInt: values 128–16383
+    assertEquals(2, BitUtil.vIntSize(128));
+    assertEquals(2, BitUtil.vIntSize(16383));
+
+    // 3-byte VInt: values 16384–2097151
+    assertEquals(3, BitUtil.vIntSize(16384));
+    assertEquals(3, BitUtil.vIntSize(2097151));
+
+    // 4-byte VInt: values 2097152–268435455
+    assertEquals(4, BitUtil.vIntSize(2097152));
+    assertEquals(4, BitUtil.vIntSize(268435455));
+
+    // 5-byte VInt: values 268435456+
+    assertEquals(5, BitUtil.vIntSize(268435456));
+    assertEquals(5, BitUtil.vIntSize(Integer.MAX_VALUE));
+
+    for (int shift = 0; shift < 31; shift++) {
+      int val = 1 << shift;
+      int expected = (shift / 7) + 1;
+      assertEquals("1<<" + shift, expected, BitUtil.vIntSize(val));
+    }
+  }
+
   public void testIsZeroOrPowerOfTwo() {
     assertTrue(BitUtil.isZeroOrPowerOfTwo(0));
     for (int shift = 0; shift <= 31; ++shift) {

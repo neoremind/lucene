@@ -127,6 +127,29 @@ public final class UnicodeUtil {
   /** Maximum number of UTF8 bytes per UTF16 character. */
   public static final int MAX_UTF8_BYTES_PER_CHAR = 3;
 
+  /** Max charCount where the string's UTF-8 byte count is guaranteed to need only a 1-byte VInt */
+  private static final int MAX_CHARS_FOR_1_BYTE_VINT = 127 / MAX_UTF8_BYTES_PER_CHAR;
+
+  /**
+   * Min charCount where the string's UTF-8 byte count is guaranteed to need at least a 2-byte VInt
+   */
+  private static final int MIN_CHARS_FOR_2_BYTE_VINT = 128;
+
+  /**
+   * Max charCount where the string's UTF-8 byte count is guaranteed to need at most a 2-byte VInt
+   */
+  private static final int MAX_CHARS_FOR_2_BYTE_VINT = 16383 / MAX_UTF8_BYTES_PER_CHAR;
+
+  /**
+   * Min charCount where the string's UTF-8 byte count is guaranteed to need at least a 3-byte VInt
+   */
+  private static final int MIN_CHARS_FOR_3_BYTE_VINT = 16384;
+
+  /**
+   * Max charCount where the string's UTF-8 byte count is guaranteed to need at most a 3-byte VInt
+   */
+  private static final int MAX_CHARS_FOR_3_BYTE_VINT = 2097151 / MAX_UTF8_BYTES_PER_CHAR;
+
   /**
    * Encode characters from a char[] source, starting at offset for length chars. It is the
    * responsibility of the caller to make sure that the destination array is large enough.
@@ -269,6 +292,73 @@ public final class UnicodeUtil {
       }
     }
 
+    return res;
+  }
+
+  /**
+   * Calculates the number of bytes needed for the VInt encoding of the UTF-8 byte length of the
+   * given CharSequence. Uses charCount bounds to avoid scanning when possible, and performs
+   * early-exit partial scanning for ambiguous ranges.
+   *
+   * @return the number of bytes needed for the VInt encoding length
+   */
+  public static int calcVIntSizeForUTF8Length(
+      final CharSequence s, final int offset, final int len) {
+    if (len <= MAX_CHARS_FOR_1_BYTE_VINT) {
+      return 1;
+    }
+    if (len >= MIN_CHARS_FOR_2_BYTE_VINT && len <= MAX_CHARS_FOR_2_BYTE_VINT) {
+      return 2;
+    }
+    if (len >= MIN_CHARS_FOR_3_BYTE_VINT && len <= MAX_CHARS_FOR_3_BYTE_VINT) {
+      return 3;
+    }
+
+    // Ambiguous ranges: scan with early exit
+    final int threshold;
+    final int res;
+    if (len < MIN_CHARS_FOR_2_BYTE_VINT) {
+      // charCount in (MAX_CHARS_FOR_1_BYTE_VINT, MIN_CHARS_FOR_2_BYTE_VINT):
+      // VInt is 1 if byteLen < 128, else 2
+      threshold = 128;
+      res = 1;
+    } else {
+      // charCount in (MAX_CHARS_FOR_2_BYTE_VINT, MIN_CHARS_FOR_3_BYTE_VINT):
+      // VInt is 2 if byteLen < 16384, else 3
+      threshold = 16384;
+      res = 2;
+    }
+
+    final int end = offset + len;
+    int byteLen = 0;
+    for (int i = offset; i < end; i++) {
+      final int code = (int) s.charAt(i);
+      if (code < 0x80) {
+        byteLen++;
+      } else if (code < 0x800) {
+        byteLen += 2;
+      } else if (code < 0xD800 || code > 0xDFFF) {
+        byteLen += 3;
+      } else {
+        // surrogate pair
+        // confirm valid high surrogate
+        if (code < 0xDC00 && (i < end - 1)) {
+          int utf32 = (int) s.charAt(i + 1);
+          // confirm valid low surrogate and write pair
+          if (utf32 >= 0xDC00 && utf32 <= 0xDFFF) {
+            i++;
+            byteLen += 4;
+          } else {
+            byteLen += 3;
+          }
+        } else {
+          byteLen += 3;
+        }
+      }
+      if (byteLen >= threshold) {
+        return res + 1;
+      }
+    }
     return res;
   }
 
