@@ -62,13 +62,16 @@ public class WriteStringBenchmark {
   })
   public String stringType;
 
+  @Param({"true", "false"})
+  public boolean resettable;
+
   /** Pre-generated strings to write, cycled through during each invocation. */
   private String[] testStrings;
 
   /** Number of strings to write per invocation to reach TARGET_BYTES total output. */
   private int stringsPerInvocation;
 
-  private static final int TARGET_BYTES = 16 * 1024 * 1024; // 16 MB
+  private static final int TARGET_BYTES = 1024 * 1024; // 1 MB
   private static final int STRING_POOL_SIZE = 8192;
 
   @Setup(Level.Trial)
@@ -171,10 +174,14 @@ public class WriteStringBenchmark {
 
   // --- Benchmarks ---
 
+  private ByteBuffersDataOutput createOutput() {
+    return resettable ? ByteBuffersDataOutput.newResettableInstance() : new ByteBuffersDataOutput();
+  }
+
   @Benchmark
   public void newImpl(Blackhole bh) {
     // New optimized implementation (now the default writeString)
-    ByteBuffersDataOutput output = new ByteBuffersDataOutput();
+    ByteBuffersDataOutput output = createOutput();
     for (int i = 0; i < stringsPerInvocation; i++) {
       output.writeString(testStrings[i % STRING_POOL_SIZE]);
     }
@@ -184,7 +191,7 @@ public class WriteStringBenchmark {
   @Benchmark
   public void prevImpl(Blackhole bh) {
     // Previous implementation (PR#13863): calcUTF16toUTF8Length + writeVInt + direct encode
-    ByteBuffersDataOutput output = new ByteBuffersDataOutput();
+    ByteBuffersDataOutput output = createOutput();
     for (int i = 0; i < stringsPerInvocation; i++) {
       output.writeStringPrev(testStrings[i % STRING_POOL_SIZE]);
     }
@@ -194,7 +201,7 @@ public class WriteStringBenchmark {
   @Benchmark
   public void oldImpl(Blackhole bh) throws IOException {
     // Old implementation (pre-PR#13863): BytesRef allocation + writeBytes
-    ByteBuffersDataOutput output = new ByteBuffersDataOutput();
+    ByteBuffersDataOutput output = createOutput();
     for (int i = 0; i < stringsPerInvocation; i++) {
       writeStringOld(output, testStrings[i % STRING_POOL_SIZE]);
     }
