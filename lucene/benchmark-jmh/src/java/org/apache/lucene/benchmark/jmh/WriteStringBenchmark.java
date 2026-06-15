@@ -46,7 +46,7 @@ import org.openjdk.jmh.infra.Blackhole;
     jvmArgsAppend = {"-Xmx1g", "-Xms1g", "-XX:+AlwaysPreTouch"})
 public class WriteStringBenchmark {
 
-  private static final int TARGET_BYTES = 1024 * 1024; // 1 MB
+  private static final int TARGET_BYTES = 8 * 1024 * 1024; // 1 MB
   private static final int STRING_POOL_SIZE = 8192;
 
   @Param({
