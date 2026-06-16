@@ -46,32 +46,32 @@ import org.openjdk.jmh.infra.Blackhole;
     jvmArgsAppend = {"-Xmx1g", "-Xms1g", "-XX:+AlwaysPreTouch"})
 public class WriteStringBenchmark {
 
-  private static final int TARGET_BYTES = 8 * 1024 * 1024; // 1 MB
   private static final int STRING_POOL_SIZE = 8192;
 
   @Param({
-    "ascii_short",
-    "ascii_medium",
-    "ascii_long",
-    "ascii_vlarge",
-    "cjk_short",
-    "cjk_medium",
-    "cjk_long",
-    "cjk_vlarge",
-    "latin_ext_short",
-    "latin_ext_medium",
-    "latin_ext_long",
-    "latin_ext_vlarge"
+      "ascii_short",
+      "ascii_medium",
+      "ascii_long",
+      "ascii_vlarge",
+      "cjk_short",
+      "cjk_medium",
+      "cjk_long",
+      "cjk_vlarge",
+      "latin_ext_short",
+      "latin_ext_medium",
+      "latin_ext_long",
+      "latin_ext_vlarge"
   })
   public String stringType;
-
-  @Param({"true", "false"})
-  public boolean resettable;
 
   /** Pre-generated strings to write, cycled through during each invocation. */
   private String[] testStrings;
 
-  /** Number of strings to write per invocation to reach TARGET_BYTES total output. */
+  /** Target bytes to write per invocation. Matches stored fields chunk sizes. */
+  @Param({"81920", "491520"})
+  public int targetBytes;
+
+  /** Number of strings to write per invocation to reach targetBytes total output. */
   private int stringsPerInvocation;
 
   private ByteBuffersDataOutput reusableOutput;
@@ -133,11 +133,11 @@ public class WriteStringBenchmark {
         avgBytesPerString = 1500;
         break;
       case "cjk_vlarge":
-        // ~3000 chars CJK = ~9000 UTF-8 bytes
+        // ~6000 chars CJK = ~18000 UTF-8 bytes (beyond 5461 char threshold for 2-byte VInt)
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
-          testStrings[i] = randomCjk(random, 2500 + random.nextInt(1000));
+          testStrings[i] = randomCjk(random, 5500 + random.nextInt(1000));
         }
-        avgBytesPerString = 9000;
+        avgBytesPerString = 18000;
         break;
       case "latin_ext_short":
         // ~10 chars Latin extended = ~20 UTF-8 bytes
@@ -161,31 +161,26 @@ public class WriteStringBenchmark {
         avgBytesPerString = 1000;
         break;
       case "latin_ext_vlarge":
-        // ~3000 chars Latin extended = ~6000 UTF-8 bytes
+        // ~6000 chars Latin extended = ~12000 UTF-8 bytes (beyond 5461 char threshold)
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
-          testStrings[i] = randomLatinExtended(random, 2500 + random.nextInt(1000));
+          testStrings[i] = randomLatinExtended(random, 5500 + random.nextInt(1000));
         }
-        avgBytesPerString = 6000;
+        avgBytesPerString = 12000;
         break;
       default:
         throw new IllegalArgumentException("Unknown stringType: " + stringType);
     }
 
-    stringsPerInvocation = TARGET_BYTES / avgBytesPerString;
+    stringsPerInvocation = targetBytes / avgBytesPerString;
 
-    if (resettable) {
-      reusableOutput = ByteBuffersDataOutput.newResettableInstance();
-    }
+    reusableOutput = ByteBuffersDataOutput.newResettableInstance();
   }
 
   // --- Benchmarks ---
 
   private ByteBuffersDataOutput getOutput() {
-    if (resettable) {
-      reusableOutput.reset();
-      return reusableOutput;
-    }
-    return new ByteBuffersDataOutput();
+    reusableOutput.reset();
+    return reusableOutput;
   }
 
   @Benchmark
