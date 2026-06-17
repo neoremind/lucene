@@ -248,22 +248,27 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
         avgBytesPerString = 12000;
         break;
       case "mixed":
-        // Realistic mix: varying lengths and encodings simulating stored fields workload
-        // ~60% short ASCII (field names, IDs), ~20% medium ASCII (titles),
-        // ~10% short CJK, ~10% medium latin-ext
+        // Varying lengths
+        // ~50% short ASCII (field names, IDs), ~15% medium ASCII (titles),
+        // ~10% long ASCII (descriptions), ~10% short CJK, ~10% medium latin-ext,
+        // ~5% long mixed
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
           int roll = random.nextInt(100);
-          if (roll < 60) {
+          if (roll < 50) {
             testStrings[i] = randomAscii(random, 3 + random.nextInt(30));
-          } else if (roll < 80) {
+          } else if (roll < 65) {
             testStrings[i] = randomAscii(random, 50 + random.nextInt(100));
-          } else if (roll < 90) {
+          } else if (roll < 75) {
+            testStrings[i] = randomAscii(random, 500 + random.nextInt(500));
+          } else if (roll < 85) {
             testStrings[i] = randomCjk(random, 5 + random.nextInt(20));
-          } else {
+          } else if (roll < 95) {
             testStrings[i] = randomLatinExtended(random, 20 + random.nextInt(60));
+          } else {
+            testStrings[i] = randomCjk(random, 200 + random.nextInt(300));
           }
         }
-        avgBytesPerString = 40;
+        avgBytesPerString = 80;
         break;
       default:
         throw new IllegalArgumentException("Unknown stringType: " + stringType);
