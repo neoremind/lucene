@@ -293,4 +293,86 @@ public final class TestByteBuffersDataOutput extends BaseDataOutputTestCase<Byte
     return buffers.stream().mapToLong(ByteBuffer::capacity).sum()
         + buffers.size() * RamUsageEstimator.NUM_BYTES_OBJECT_REF;
   }
+
+  public void testWriteString() throws IOException {
+    ByteBuffersDataOutput out = new ByteBuffersDataOutput();
+
+    String shortAscii = "hello world";
+    out.writeString(shortAscii);
+
+    String mediumAscii = "a".repeat(100);
+    out.writeString(mediumAscii);
+
+    String longAscii = "x".repeat(500);
+    out.writeString(longAscii);
+
+    String cjk = "\u4e2d\u6587\u5b57\u7b26\u4e32\u6d4b\u8bd5";
+    out.writeString(cjk);
+
+    // String with surrogate pairs (emoji)
+    String emoji = "Hello \uD83D\uDE00 World \uD83C\uDF1F!";
+    out.writeString(emoji);
+
+    String large = "\u0410".repeat(2000); // Cyrillic А, 2-byte UTF-8
+    out.writeString(large);
+
+    String vlarge = "Z".repeat(8000);
+    out.writeString(vlarge);
+
+    out.writeString("");
+
+    ByteBuffersDataInput in = out.toDataInput();
+    assertEquals(shortAscii, in.readString());
+    assertEquals(mediumAscii, in.readString());
+    assertEquals(longAscii, in.readString());
+    assertEquals(cjk, in.readString());
+    assertEquals(emoji, in.readString());
+    assertEquals(large, in.readString());
+    assertEquals(vlarge, in.readString());
+    assertEquals("", in.readString());
+  }
+
+  public void testWriteStringWithDefaultStartingBlockSize() throws IOException {
+    ByteBuffersDataOutput out =
+        new ByteBuffersDataOutput(
+            ByteBuffersDataOutput.DEFAULT_MIN_BITS_PER_BLOCK,
+            ByteBuffersDataOutput.DEFAULT_MAX_BITS_PER_BLOCK,
+            ByteBuffersDataOutput.ALLOCATE_BB_ON_HEAP,
+            ByteBuffersDataOutput.NO_REUSE);
+
+    int num = atLeast(5000);
+    String[] strings = new String[num];
+    for (int i = 0; i < num; i++) {
+      strings[i] = TestUtil.randomUnicodeString(random(), random().nextInt(20000));
+      out.writeString(strings[i]);
+    }
+
+    ByteBuffersDataInput in = out.toDataInput();
+    for (int i = 0; i < num; i++) {
+      assertEquals("String at index " + i, strings[i], in.readString());
+    }
+  }
+
+  /** Randomized test that writes many strings with small blocks to stress block boundary. */
+  public void testWriteStringWithSmallStartingBlockSize() throws IOException {
+    // Use smallest possible starting block size to maximize boundary crossings
+    ByteBuffersDataOutput out =
+        new ByteBuffersDataOutput(
+            ByteBuffersDataOutput.LIMIT_MIN_BITS_PER_BLOCK,
+            ByteBuffersDataOutput.DEFAULT_MAX_BITS_PER_BLOCK,
+            ByteBuffersDataOutput.ALLOCATE_BB_ON_HEAP,
+            ByteBuffersDataOutput.NO_REUSE);
+
+    int num = atLeast(50000);
+    String[] strings = new String[num];
+    for (int i = 0; i < num; i++) {
+      strings[i] = TestUtil.randomUnicodeString(random(), random().nextInt(200));
+      out.writeString(strings[i]);
+    }
+
+    ByteBuffersDataInput in = out.toDataInput();
+    for (int i = 0; i < num; i++) {
+      assertEquals("String at index " + i, strings[i], in.readString());
+    }
+  }
 }
