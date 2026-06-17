@@ -16,9 +16,12 @@
  */
 package org.apache.lucene.benchmark.jmh;
 
+import java.io.IOException;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import org.apache.lucene.store.ByteBuffersDataOutput;
+import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.UnicodeUtil;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -67,7 +70,8 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
       "latin_ext_40",
       "latin_ext_medium",
       "latin_ext_long",
-      "latin_ext_vlarge"
+      "latin_ext_vlarge",
+      "mixed"
   })
   public String stringType;
 
@@ -192,12 +196,35 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
         }
         avgBytesPerString = 18000;
         break;
-      case "latin_ext_short":
-        // ~10 chars Latin extended = ~20 UTF-8 bytes
+      case "latin_ext_1":
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
-          testStrings[i] = randomLatinExtended(random, 5 + random.nextInt(15));
+          testStrings[i] = randomLatinExtended(random, 1);
         }
-        avgBytesPerString = 20;
+        avgBytesPerString = 3;
+        break;
+      case "latin_ext_10":
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomLatinExtended(random, 8 + random.nextInt(5));
+        }
+        avgBytesPerString = 21;
+        break;
+      case "latin_ext_20":
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomLatinExtended(random, 18 + random.nextInt(5));
+        }
+        avgBytesPerString = 41;
+        break;
+      case "latin_ext_30":
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomLatinExtended(random, 28 + random.nextInt(5));
+        }
+        avgBytesPerString = 61;
+        break;
+      case "latin_ext_40":
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomLatinExtended(random, 38 + random.nextInt(5));
+        }
+        avgBytesPerString = 81;
         break;
       case "latin_ext_medium":
         // ~100 chars Latin extended (Cyrillic, Greek, accented) = ~200 UTF-8 bytes (2 bytes/char)
@@ -220,6 +247,24 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
         }
         avgBytesPerString = 12000;
         break;
+      case "mixed":
+        // Realistic mix: varying lengths and encodings simulating stored fields workload
+        // ~60% short ASCII (field names, IDs), ~20% medium ASCII (titles),
+        // ~10% short CJK, ~10% medium latin-ext
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          int roll = random.nextInt(100);
+          if (roll < 60) {
+            testStrings[i] = randomAscii(random, 3 + random.nextInt(30));
+          } else if (roll < 80) {
+            testStrings[i] = randomAscii(random, 50 + random.nextInt(100));
+          } else if (roll < 90) {
+            testStrings[i] = randomCjk(random, 5 + random.nextInt(20));
+          } else {
+            testStrings[i] = randomLatinExtended(random, 20 + random.nextInt(60));
+          }
+        }
+        avgBytesPerString = 40;
+        break;
       default:
         throw new IllegalArgumentException("Unknown stringType: " + stringType);
     }
@@ -231,8 +276,6 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
 
   private ByteBuffersDataOutput reusableOutput;
 
-  // --- Benchmarks ---
-
   private ByteBuffersDataOutput getOutput() {
     reusableOutput.reset();
     return reusableOutput;
@@ -240,7 +283,6 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
 
   @Benchmark
   public void newImpl(Blackhole bh) {
-    // New optimized implementation (now the default writeString)
     ByteBuffersDataOutput output = getOutput();
     for (int i = 0; i < stringsPerInvocation; i++) {
       output.writeString(testStrings[i % STRING_POOL_SIZE]);
@@ -250,7 +292,6 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
 
   @Benchmark
   public void prevImpl(Blackhole bh) {
-    // Previous implementation (PR#13863): calcUTF16toUTF8Length + writeVInt + direct encode
     ByteBuffersDataOutput output = getOutput();
     for (int i = 0; i < stringsPerInvocation; i++) {
       output.writeStringPrev(testStrings[i % STRING_POOL_SIZE]);
