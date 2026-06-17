@@ -415,42 +415,33 @@ public final class ByteBuffersDataOutput extends DataOutput implements Accountab
   public void writeString(String v) {
     try {
       final int charCount = v.length();
-      // Maximum bytes required (worst-case) for a string
-      int requiredLen = BitUtil.MAX_VINT_SIZE + charCount * UnicodeUtil.MAX_UTF8_BYTES_PER_CHAR;
-
       ByteBuffer currentBlock = this.currentBlock;
-      int remaining = currentBlock.remaining();
 
-      int byteLen = 0;
-      int vIntSize = 0;
-      boolean exactComputed = false;
-
-      // If worst-case doesn't fit but there's still a chance, compute exact length
-      if (remaining < requiredLen && remaining >= BitUtil.MAX_VINT_SIZE + charCount) {
-        byteLen = UnicodeUtil.calcUTF16toUTF8Length(v, 0, charCount);
-        vIntSize = BitUtil.vIntSize(byteLen);
-        requiredLen = vIntSize + byteLen;
-        exactComputed = true;
-      }
-
-      if (currentBlock.hasArray() && remaining >= requiredLen) {
-        // encode directly, backfill VInt
-        if (!exactComputed) {
-          vIntSize = UnicodeUtil.calcVIntSizeForUTF8Length(v, 0, charCount);
-        }
+      // Fast path for short strings (charCount <= 42): VInt is guaranteed 1 byte,
+      // single-pass encode without computing UTF-8 length upfront.
+      if (charCount <= UnicodeUtil.MAX_CHARS_FOR_1_BYTE_VINT
+          && currentBlock.hasArray()
+          && currentBlock.remaining() >= 1 + charCount * UnicodeUtil.MAX_UTF8_BYTES_PER_CHAR) {
         byte[] array = currentBlock.array();
         int startingPos = currentBlock.position();
         int off = currentBlock.arrayOffset() + startingPos;
-        int encodedEnd = UnicodeUtil.UTF16toUTF8(v, 0, charCount, array, off + vIntSize);
-        byteLen = encodedEnd - (off + vIntSize);
-        currentBlock.position(startingPos);
-        writeVInt(byteLen);
-        currentBlock.position(startingPos + vIntSize + byteLen);
+        int encodedEnd = UnicodeUtil.UTF16toUTF8(v, 0, charCount, array, off + 1);
+        int byteLen = encodedEnd - (off + 1);
+        array[off] = (byte) byteLen;
+        currentBlock.position(startingPos + 1 + byteLen);
+        return;
+      }
+
+      // General path: compute exact UTF-8 length, then encode directly or fall back
+      final int byteLen = UnicodeUtil.calcUTF16toUTF8Length(v, 0, charCount);
+      writeVInt(byteLen);
+      currentBlock = this.currentBlock;
+      if (currentBlock.hasArray() && currentBlock.remaining() >= byteLen) {
+        int startingPos = currentBlock.position();
+        UnicodeUtil.UTF16toUTF8(
+            v, 0, charCount, currentBlock.array(), currentBlock.arrayOffset() + startingPos);
+        currentBlock.position(startingPos + byteLen);
       } else {
-        if (!exactComputed) {
-          byteLen = UnicodeUtil.calcUTF16toUTF8Length(v, 0, charCount);
-        }
-        writeVInt(byteLen);
         writeLongString(byteLen, v);
       }
     } catch (IOException e) {

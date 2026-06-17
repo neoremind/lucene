@@ -128,27 +128,27 @@ public final class UnicodeUtil {
   public static final int MAX_UTF8_BYTES_PER_CHAR = 3;
 
   /** Max charCount where the string's UTF-8 byte count is guaranteed to need only a 1-byte VInt */
-  private static final int MAX_CHARS_FOR_1_BYTE_VINT = 127 / MAX_UTF8_BYTES_PER_CHAR;
+  public static final int MAX_CHARS_FOR_1_BYTE_VINT = 127 / MAX_UTF8_BYTES_PER_CHAR;
 
   /**
    * Min charCount where the string's UTF-8 byte count is guaranteed to need at least a 2-byte VInt
    */
-  private static final int MIN_CHARS_FOR_2_BYTE_VINT = 128;
+  public static final int MIN_CHARS_FOR_2_BYTE_VINT = 128;
 
   /**
    * Max charCount where the string's UTF-8 byte count is guaranteed to need at most a 2-byte VInt
    */
-  private static final int MAX_CHARS_FOR_2_BYTE_VINT = 16383 / MAX_UTF8_BYTES_PER_CHAR;
+  public static final int MAX_CHARS_FOR_2_BYTE_VINT = 16383 / MAX_UTF8_BYTES_PER_CHAR;
 
   /**
    * Min charCount where the string's UTF-8 byte count is guaranteed to need at least a 3-byte VInt
    */
-  private static final int MIN_CHARS_FOR_3_BYTE_VINT = 16384;
+  public static final int MIN_CHARS_FOR_3_BYTE_VINT = 16384;
 
   /**
    * Max charCount where the string's UTF-8 byte count is guaranteed to need at most a 3-byte VInt
    */
-  private static final int MAX_CHARS_FOR_3_BYTE_VINT = 2097151 / MAX_UTF8_BYTES_PER_CHAR;
+  public static final int MAX_CHARS_FOR_3_BYTE_VINT = 2097151 / MAX_UTF8_BYTES_PER_CHAR;
 
   /**
    * Encode characters from a char[] source, starting at offset for length chars. It is the
