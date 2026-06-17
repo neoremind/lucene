@@ -16,12 +16,9 @@
  */
 package org.apache.lucene.benchmark.jmh;
 
-import java.io.IOException;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import org.apache.lucene.store.ByteBuffersDataOutput;
-import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.UnicodeUtil;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -46,18 +43,28 @@ import org.openjdk.jmh.infra.Blackhole;
     jvmArgsAppend = {"-Xmx1g", "-Xms1g", "-XX:+AlwaysPreTouch"})
 public class ByteBuffersDataOutputWriteStringBenchmark {
 
-  private static final int STRING_POOL_SIZE = 8192;
-
   @Param({
-      "ascii_short",
+      "ascii_1",
+      "ascii_10",
+      "ascii_20",
+      "ascii_30",
+      "ascii_40",
       "ascii_medium",
       "ascii_long",
       "ascii_vlarge",
-      "cjk_short",
+      "cjk_1",
+      "cjk_10",
+      "cjk_20",
+      "cjk_30",
+      "cjk_40",
       "cjk_medium",
       "cjk_long",
       "cjk_vlarge",
-      "latin_ext_short",
+      "latin_ext_1",
+      "latin_ext_10",
+      "latin_ext_20",
+      "latin_ext_30",
+      "latin_ext_40",
       "latin_ext_medium",
       "latin_ext_long",
       "latin_ext_vlarge"
@@ -74,7 +81,7 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
   /** Number of strings to write per invocation to reach targetBytes total output. */
   private int stringsPerInvocation;
 
-  private ByteBuffersDataOutput reusableOutput;
+  private static final int STRING_POOL_SIZE = 8192;
 
   @Setup(Level.Trial)
   public void setup() {
@@ -83,12 +90,35 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
 
     int avgBytesPerString;
     switch (stringType) {
-      case "ascii_short":
-        // ~12 bytes avg (10 chars + VInt)
+      case "ascii_1":
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
-          testStrings[i] = randomAscii(random, 5 + random.nextInt(15));
+          testStrings[i] = randomAscii(random, 1);
         }
-        avgBytesPerString = 12;
+        avgBytesPerString = 2;
+        break;
+      case "ascii_10":
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomAscii(random, 8 + random.nextInt(5));
+        }
+        avgBytesPerString = 11;
+        break;
+      case "ascii_20":
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomAscii(random, 18 + random.nextInt(5));
+        }
+        avgBytesPerString = 21;
+        break;
+      case "ascii_30":
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomAscii(random, 28 + random.nextInt(5));
+        }
+        avgBytesPerString = 31;
+        break;
+      case "ascii_40":
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomAscii(random, 38 + random.nextInt(5));
+        }
+        avgBytesPerString = 41;
         break;
       case "ascii_medium":
         // ~100 bytes avg
@@ -111,12 +141,35 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
         }
         avgBytesPerString = 8192;
         break;
-      case "cjk_short":
-        // ~10 chars CJK = ~30 UTF-8 bytes (3 bytes/char), with rare surrogates (~1%)
+      case "cjk_1":
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
-          testStrings[i] = randomCjk(random, 5 + random.nextInt(15));
+          testStrings[i] = randomCjk(random, 1);
+        }
+        avgBytesPerString = 4;
+        break;
+      case "cjk_10":
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomCjk(random, 8 + random.nextInt(5));
         }
         avgBytesPerString = 32;
+        break;
+      case "cjk_20":
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomCjk(random, 18 + random.nextInt(5));
+        }
+        avgBytesPerString = 62;
+        break;
+      case "cjk_30":
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomCjk(random, 28 + random.nextInt(5));
+        }
+        avgBytesPerString = 92;
+        break;
+      case "cjk_40":
+        for (int i = 0; i < STRING_POOL_SIZE; i++) {
+          testStrings[i] = randomCjk(random, 38 + random.nextInt(5));
+        }
+        avgBytesPerString = 122;
         break;
       case "cjk_medium":
         // ~100 chars CJK = ~300 UTF-8 bytes
@@ -147,7 +200,7 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
         avgBytesPerString = 20;
         break;
       case "latin_ext_medium":
-        // ~100 chars Latin extended = ~200 UTF-8 bytes (2 bytes/char)
+        // ~100 chars Latin extended (Cyrillic, Greek, accented) = ~200 UTF-8 bytes (2 bytes/char)
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
           testStrings[i] = randomLatinExtended(random, 50 + random.nextInt(100));
         }
@@ -176,6 +229,8 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
     reusableOutput = ByteBuffersDataOutput.newResettableInstance();
   }
 
+  private ByteBuffersDataOutput reusableOutput;
+
   // --- Benchmarks ---
 
   private ByteBuffersDataOutput getOutput() {
@@ -202,53 +257,6 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
     }
     bh.consume(output.size());
   }
-
-  @Benchmark
-  public void oldImpl(Blackhole bh) throws IOException {
-    // Old implementation (pre-PR#13863): BytesRef allocation + writeBytes
-    ByteBuffersDataOutput output = getOutput();
-    for (int i = 0; i < stringsPerInvocation; i++) {
-      writeStringOld(output, testStrings[i % STRING_POOL_SIZE]);
-    }
-    bh.consume(output.size());
-  }
-
-  // --- Old implementation (pre-PR#13863) ---
-
-  private static final int MAX_CHARS_PER_WINDOW = 1024;
-
-  /**
-   * Reproduces the old writeString logic: for short strings (<=1024 chars), allocate a BytesRef and
-   * copy through it. For long strings, use chunked writeLongString.
-   */
-  private static void writeStringOld(ByteBuffersDataOutput out, String v) throws IOException {
-    if (v.length() <= MAX_CHARS_PER_WINDOW) {
-      final BytesRef utf8 = new BytesRef(v);
-      out.writeVInt(utf8.length);
-      out.writeBytes(utf8.bytes, utf8.offset, utf8.length);
-    } else {
-      writeLongStringOld(out, v);
-    }
-  }
-
-  /** Old writeLongString: computes length, writes VInt, then encodes in chunks. */
-  private static void writeLongStringOld(ByteBuffersDataOutput out, String s) throws IOException {
-    final int byteLen = UnicodeUtil.calcUTF16toUTF8Length(s, 0, s.length());
-    out.writeVInt(byteLen);
-    final byte[] buf =
-        new byte[Math.min(byteLen, UnicodeUtil.MAX_UTF8_BYTES_PER_CHAR * MAX_CHARS_PER_WINDOW)];
-    for (int i = 0, end = s.length(); i < end; ) {
-      int step = Math.min(end - i, MAX_CHARS_PER_WINDOW - 1);
-      if (i + step < end && Character.isHighSurrogate(s.charAt(i + step - 1))) {
-        step++;
-      }
-      int upTo = UnicodeUtil.UTF16toUTF8(s, i, step, buf);
-      out.writeBytes(buf, 0, upTo);
-      i += step;
-    }
-  }
-
-  // --- String generators ---
 
   private static String randomAscii(Random random, int length) {
     char[] chars = new char[length];
