@@ -16,12 +16,9 @@
  */
 package org.apache.lucene.benchmark.jmh;
 
-import java.io.IOException;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import org.apache.lucene.store.ByteBuffersDataOutput;
-import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.UnicodeUtil;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -45,6 +42,8 @@ import org.openjdk.jmh.infra.Blackhole;
     value = 3,
     jvmArgsAppend = {"-Xmx1g", "-Xms1g", "-XX:+AlwaysPreTouch"})
 public class ByteBuffersDataOutputWriteStringBenchmark {
+
+  private static final int STRING_POOL_SIZE = 8192;
 
   @Param({
       "ascii_1",
@@ -75,17 +74,17 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
   })
   public String stringType;
 
-  /** Pre-generated strings to write, cycled through during each invocation. */
-  private String[] testStrings;
-
-  /** Target bytes to write per invocation. Matches stored fields chunk sizes. */
-  @Param({"81920", "491520"})
+  /** Target bytes to write per invocation. */
+  @Param({"81920", "491520", "2097152"})
   public int targetBytes;
+
+  /** Pre-generated strings to write. */
+  private String[] testStrings;
 
   /** Number of strings to write per invocation to reach targetBytes total output. */
   private int stringsPerInvocation;
 
-  private static final int STRING_POOL_SIZE = 8192;
+  private ByteBuffersDataOutput reusableOutput;
 
   @Setup(Level.Trial)
   public void setup() {
@@ -125,21 +124,18 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
         avgBytesPerString = 41;
         break;
       case "ascii_medium":
-        // ~100 bytes avg
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
           testStrings[i] = randomAscii(random, 50 + random.nextInt(100));
         }
         avgBytesPerString = 100;
         break;
       case "ascii_long":
-        // ~1024 bytes avg
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
           testStrings[i] = randomAscii(random, 900 + random.nextInt(250));
         }
         avgBytesPerString = 1024;
         break;
       case "ascii_vlarge":
-        // ~8192 bytes avg
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
           testStrings[i] = randomAscii(random, 7000 + random.nextInt(2400));
         }
@@ -176,21 +172,18 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
         avgBytesPerString = 122;
         break;
       case "cjk_medium":
-        // ~100 chars CJK = ~300 UTF-8 bytes
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
           testStrings[i] = randomCjk(random, 50 + random.nextInt(100));
         }
         avgBytesPerString = 300;
         break;
       case "cjk_long":
-        // ~500 chars CJK = ~1500 UTF-8 bytes
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
           testStrings[i] = randomCjk(random, 400 + random.nextInt(200));
         }
         avgBytesPerString = 1500;
         break;
       case "cjk_vlarge":
-        // ~6000 chars CJK = ~18000 UTF-8 bytes (beyond 5461 char threshold for 2-byte VInt)
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
           testStrings[i] = randomCjk(random, 5500 + random.nextInt(1000));
         }
@@ -227,21 +220,18 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
         avgBytesPerString = 81;
         break;
       case "latin_ext_medium":
-        // ~100 chars Latin extended (Cyrillic, Greek, accented) = ~200 UTF-8 bytes (2 bytes/char)
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
           testStrings[i] = randomLatinExtended(random, 50 + random.nextInt(100));
         }
         avgBytesPerString = 200;
         break;
       case "latin_ext_long":
-        // ~500 chars Latin extended = ~1000 UTF-8 bytes
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
           testStrings[i] = randomLatinExtended(random, 400 + random.nextInt(200));
         }
         avgBytesPerString = 1000;
         break;
       case "latin_ext_vlarge":
-        // ~6000 chars Latin extended = ~12000 UTF-8 bytes (beyond 5461 char threshold)
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
           testStrings[i] = randomLatinExtended(random, 5500 + random.nextInt(1000));
         }
@@ -249,9 +239,6 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
         break;
       case "mixed":
         // Varying lengths
-        // ~50% short ASCII (field names, IDs), ~15% medium ASCII (titles),
-        // ~10% long ASCII (descriptions), ~10% short CJK, ~10% medium latin-ext,
-        // ~5% long mixed
         for (int i = 0; i < STRING_POOL_SIZE; i++) {
           int roll = random.nextInt(100);
           if (roll < 50) {
@@ -279,8 +266,6 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
     reusableOutput = ByteBuffersDataOutput.newResettableInstance();
   }
 
-  private ByteBuffersDataOutput reusableOutput;
-
   private ByteBuffersDataOutput getOutput() {
     reusableOutput.reset();
     return reusableOutput;
@@ -304,7 +289,7 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
     bh.consume(output.size());
   }
 
-  private static String randomAscii(Random random, int length) {
+  private String randomAscii(Random random, int length) {
     char[] chars = new char[length];
     for (int i = 0; i < length; i++) {
       chars[i] = (char) (32 + random.nextInt(95));
@@ -313,10 +298,10 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
   }
 
   /**
-   * Generates realistic CJK text: ~90% CJK Unified Ideographs (3-byte UTF-8), ~9% ASCII
-   * punctuation/digits (1-byte), ~1% surrogate pairs (emoji, rare CJK-B characters, 4-byte UTF-8).
+   * Generates realistic CJK text: ~90% CJK Unified Ideographs (3-byte UTF-8), ~9% ASCII digits (1-byte),
+   * ~1% surrogate pairs (emoji, rare CJK-B characters, 4-byte UTF-8).
    */
-  private static String randomCjk(Random random, int length) {
+  private String randomCjk(Random random, int length) {
     char[] chars = new char[length + 1]; // +1 room for potential surrogate pair expansion
     int pos = 0;
     for (int i = 0; i < length && pos < chars.length - 1; i++) {
@@ -325,10 +310,10 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
         // CJK Unified Ideographs: U+4E00–U+9FFF (3 bytes in UTF-8)
         chars[pos++] = (char) (0x4E00 + random.nextInt(0x9FFF - 0x4E00));
       } else if (roll < 99) {
-        // ASCII punctuation/digits mixed in
+        // ASCII digits
         chars[pos++] = (char) (0x30 + random.nextInt(10)); // 0-9
       } else {
-        // Surrogate pair (emoji, rare chars): 4 bytes in UTF-8
+        // Surrogate pair, 4 bytes UTF-8
         if (pos < chars.length - 1) {
           chars[pos++] = (char) (0xD800 + random.nextInt(0x400)); // high surrogate
           chars[pos++] = (char) (0xDC00 + random.nextInt(0x400)); // low surrogate
@@ -340,22 +325,18 @@ public class ByteBuffersDataOutputWriteStringBenchmark {
     return new String(chars, 0, pos);
   }
 
-  /**
-   * Generates realistic Latin-extended text: ~80% 2-byte chars (Cyrillic, Greek, accented Latin:
-   * U+0080–U+07FF), ~15% ASCII, ~5% 3-byte (rare symbols).
-   */
-  private static String randomLatinExtended(Random random, int length) {
+  private String randomLatinExtended(Random random, int length) {
     char[] chars = new char[length];
     for (int i = 0; i < length; i++) {
       int roll = random.nextInt(100);
       if (roll < 80) {
-        // 2-byte UTF-8: Cyrillic (U+0400–U+04FF), Greek (U+0370–U+03FF), accented (U+00C0–U+024F)
+        // 2-byte UTF-8
         chars[i] = (char) (0x0080 + random.nextInt(0x0700));
       } else if (roll < 95) {
         // ASCII
         chars[i] = (char) (0x41 + random.nextInt(26)); // A-Z
       } else {
-        // 3-byte (misc symbols U+2000–U+2BFF)
+        // 3-byte UTF-8
         chars[i] = (char) (0x2000 + random.nextInt(0xBFF));
       }
     }

@@ -417,8 +417,8 @@ public final class ByteBuffersDataOutput extends DataOutput implements Accountab
       final int charCount = v.length();
       ByteBuffer currentBlock = this.currentBlock;
 
-      // Fast path for short strings (charCount <= 42): VInt is guaranteed 1 byte,
-      // single-pass encode without computing UTF-8 length upfront.
+      // Fast path for short strings (charCount <= 42): the VInt length prefix is guaranteed to be 1 byte,
+      // so we can encode directly and backfill the length without computing the UTF-8 byte count upfront.
       if (charCount <= UnicodeUtil.MAX_CHARS_FOR_1_BYTE_VINT
           && currentBlock.hasArray()
           && currentBlock.remaining() >= 1 + charCount * UnicodeUtil.MAX_UTF8_BYTES_PER_CHAR) {
