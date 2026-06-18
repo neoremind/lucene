@@ -27,6 +27,7 @@ import org.openjdk.jmh.annotations.TearDown;
  * <p>Subclasses define their own offset bounds and benchmark methods.
  */
 @State(Scope.Benchmark)
+@SuppressWarnings("restricted")
 public abstract class AbstractReadIOBenchmark {
 
   protected static final int READ_SIZE = 16 * 1024; // 16 KiB
