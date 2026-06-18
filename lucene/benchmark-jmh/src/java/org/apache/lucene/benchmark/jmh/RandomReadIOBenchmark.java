@@ -263,7 +263,7 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
       for (int i = 0; i < READS_PER_OP; i++) {
         long offset = rng.nextLong(MAX_OFFSET);
         MemorySegment slice = mmapSegmentMadvRandom.asSlice(offset, READ_SIZE);
-        POSIX_MADVISE.invokeExact(slice, (long) READ_SIZE, MADV_WILLNEED);
+        int rc = (int) POSIX_MADVISE.invokeExact(slice, (long) READ_SIZE, MADV_WILLNEED);
         MemorySegment.copy(mmapSegmentMadvRandom, ValueLayout.JAVA_BYTE, offset, dst, 0, READ_SIZE);
         bh.consume(dst[0]);
       }

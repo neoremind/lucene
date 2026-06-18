@@ -280,7 +280,7 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
     try {
       // Prefetch the entire sequential range up front
       MemorySegment slice = mmapSegmentMadvRandom.asSlice(startOffset, TOTAL_READ_PER_OP);
-      POSIX_MADVISE.invokeExact(slice, TOTAL_READ_PER_OP, MADV_WILLNEED);
+      int rc = (int) POSIX_MADVISE.invokeExact(slice, TOTAL_READ_PER_OP, MADV_WILLNEED);
     } catch (Throwable t) {
       throw new RuntimeException(t);
     }
