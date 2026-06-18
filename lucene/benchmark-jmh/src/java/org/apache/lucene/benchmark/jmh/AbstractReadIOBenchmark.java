@@ -34,9 +34,7 @@ public abstract class AbstractReadIOBenchmark {
   protected static final long ALIGNMENT = 4096;
 
   protected static final long FILE_SIZE =
-      Long.parseLong(envOrProp("BENCH_FILE_SIZE_MIB", "bench.fileSizeMiB", "1024"))
-          * 1024L
-          * 1024L;
+      Long.parseLong(envOrProp("BENCH_FILE_SIZE_MIB", "bench.fileSizeMiB", "1024")) * 1024L * 1024L;
 
   protected static final String BENCH_FILE =
       envOrProp("BENCH_FILE", "bench.file", "/tmp/pread-bench.dat");
@@ -71,17 +69,12 @@ public abstract class AbstractReadIOBenchmark {
     OPEN =
         linker.downcallHandle(
             lookup.find("open").orElseThrow(),
-            FunctionDescriptor.of(
-                ValueLayout.JAVA_INT,
-                ValueLayout.ADDRESS,
-                ValueLayout.JAVA_INT));
+            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
 
     CLOSE =
         linker.downcallHandle(
             lookup.find("close").orElseThrow(),
-            FunctionDescriptor.of(
-                ValueLayout.JAVA_INT,
-                ValueLayout.JAVA_INT));
+            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
 
     POSIX_MADVISE =
         linker.downcallHandle(
@@ -129,8 +122,7 @@ public abstract class AbstractReadIOBenchmark {
   protected abstract String benchmarkName();
 
   /** Subclasses may print extra config lines. */
-  protected void printExtraConfig() {
-  }
+  protected void printExtraConfig() {}
 
   @Setup(Level.Trial)
   public void setup() throws Exception {
@@ -174,8 +166,7 @@ public abstract class AbstractReadIOBenchmark {
 
     mmapSegmentMadvRandom = fileChannel.map(MapMode.READ_ONLY, 0, FILE_SIZE, arena);
     try {
-      int rc =
-          (int) POSIX_MADVISE.invokeExact(mmapSegmentMadvRandom, FILE_SIZE, MADV_RANDOM);
+      int rc = (int) POSIX_MADVISE.invokeExact(mmapSegmentMadvRandom, FILE_SIZE, MADV_RANDOM);
       if (rc != 0) {
         System.err.println("WARNING: posix_madvise(MADV_RANDOM) returned " + rc);
       }
@@ -203,7 +194,9 @@ public abstract class AbstractReadIOBenchmark {
     }
     if (directIoFd < 0) {
       System.err.println(
-          "WARNING: O_DIRECT open failed (fd=" + directIoFd + "). "
+          "WARNING: O_DIRECT open failed (fd="
+              + directIoFd
+              + "). "
               + "Direct I/O benchmarks will fail. Use a filesystem that supports O_DIRECT.");
       directIoFd = -1;
     }
@@ -224,9 +217,9 @@ public abstract class AbstractReadIOBenchmark {
   }
 
   /**
-   * Drops page caches before each iteration (warmup and measurement).
-   * This ensures each iteration starts with a cold page cache.
-   * JIT still warms up across iterations since the JVM persists across the fork.
+   * Drops page caches before each iteration (warmup and measurement). This ensures each iteration
+   * starts with a cold page cache. JIT still warms up across iterations since the JVM persists
+   * across the fork.
    */
   @Setup(Level.Iteration)
   public void setupIteration() throws IOException {
@@ -236,9 +229,8 @@ public abstract class AbstractReadIOBenchmark {
   }
 
   /**
-   * Drops the kernel page cache to simulate cold-cache / memory-constrained scenarios.
-   * Requires running as root or with passwordless sudo.
-   * Uses: sync && echo 3 > /proc/sys/vm/drop_caches
+   * Drops the kernel page cache to simulate cold-cache / memory-constrained scenarios. Requires
+   * running as root or with passwordless sudo. Uses: sync && echo 3 > /proc/sys/vm/drop_caches
    */
   private static void dropPageCaches() throws IOException {
     Process sync = new ProcessBuilder("sync").inheritIO().start();
@@ -269,9 +261,7 @@ public abstract class AbstractReadIOBenchmark {
     System.out.println("[bench] Page caches dropped.");
   }
 
-  /**
-   * Reads a config value from env var first, then system property, then default.
-   */
+  /** Reads a config value from env var first, then system property, then default. */
   protected static String envOrProp(String envKey, String propKey, String defaultValue) {
     String env = System.getenv(envKey);
     if (env != null && !env.isEmpty()) {

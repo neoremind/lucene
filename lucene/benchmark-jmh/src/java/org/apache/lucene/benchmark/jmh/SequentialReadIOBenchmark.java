@@ -44,6 +44,7 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
 
   /** Must leave room for READS_PER_OP sequential reads from the starting offset. */
   private static final long MAX_START_OFFSET = FILE_SIZE - ((long) READ_SIZE * READS_PER_OP);
+
   private static final long MAX_ALIGNED_START = (MAX_START_OFFSET / ALIGNMENT) * ALIGNMENT;
   private static final long TOTAL_READ_PER_OP = (long) READ_SIZE * READS_PER_OP;
 
@@ -245,7 +246,13 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
     long startOffset = ThreadLocalRandom.current().nextLong(MAX_START_OFFSET);
     byte[] dst = tb.heapBuf.array();
     for (int i = 0; i < READS_PER_OP; i++) {
-      MemorySegment.copy(mmapSegmentNormal, ValueLayout.JAVA_BYTE, startOffset + (long) i * READ_SIZE, dst, 0, READ_SIZE);
+      MemorySegment.copy(
+          mmapSegmentNormal,
+          ValueLayout.JAVA_BYTE,
+          startOffset + (long) i * READ_SIZE,
+          dst,
+          0,
+          READ_SIZE);
       bh.consume(dst[0]);
     }
   }
@@ -254,7 +261,13 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
     long startOffset = ThreadLocalRandom.current().nextLong(MAX_START_OFFSET);
     byte[] dst = tb.heapBuf.array();
     for (int i = 0; i < READS_PER_OP; i++) {
-      MemorySegment.copy(mmapSegmentMadvRandom, ValueLayout.JAVA_BYTE, startOffset + (long) i * READ_SIZE, dst, 0, READ_SIZE);
+      MemorySegment.copy(
+          mmapSegmentMadvRandom,
+          ValueLayout.JAVA_BYTE,
+          startOffset + (long) i * READ_SIZE,
+          dst,
+          0,
+          READ_SIZE);
       bh.consume(dst[0]);
     }
   }
@@ -270,7 +283,13 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
       throw new RuntimeException(t);
     }
     for (int i = 0; i < READS_PER_OP; i++) {
-      MemorySegment.copy(mmapSegmentMadvRandom, ValueLayout.JAVA_BYTE, startOffset + (long) i * READ_SIZE, dst, 0, READ_SIZE);
+      MemorySegment.copy(
+          mmapSegmentMadvRandom,
+          ValueLayout.JAVA_BYTE,
+          startOffset + (long) i * READ_SIZE,
+          dst,
+          0,
+          READ_SIZE);
       bh.consume(dst[0]);
     }
   }
