@@ -19,8 +19,10 @@ import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.infra.Blackhole;
 
 /**
- * Benchmark comparing sequential read I/O strategies. Each operation picks a random starting
- * offset, then reads 16 consecutive 16 KiB blocks sequentially forward (256 KiB total per op).
+ * Benchmark comparing sequential read I/O strategies: mmap (normal, MADV_RANDOM, MADV_RANDOM +
+ * MADV_WILLNEED), FileChannel, FFI pread, and O_DIRECT — under varying concurrency and memory
+ * pressure. Each operation picks a random starting offset, then reads 16 consecutive 16KB blocks
+ * sequentially forward (256KB total per op).
  *
  * <p>Run with:
  *
@@ -28,8 +30,8 @@ import org.openjdk.jmh.infra.Blackhole;
  *   dd if=/dev/urandom of=/path/to/bench-16G.dat bs=1M count=16384
  *   BENCH_FILE=/path/to/bench-16G.dat
  *   BENCH_FILE_SIZE_MIB=16384
- *   BENCH_DROP_CACHES=true
- *   ./gradlew jmh --rerun -Pjmh.includes='SequentialReadIOBenchmark'
+ *   BENCH_DROP_CACHES=false
+ *   java -jar lucene/benchmark-jmh/build/benchmarks/lucene-benchmark-jmh.jar SequentialReadIOBenchmark
  * </pre>
  */
 @BenchmarkMode(Mode.Throughput)

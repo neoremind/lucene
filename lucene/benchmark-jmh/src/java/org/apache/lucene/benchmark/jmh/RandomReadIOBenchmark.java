@@ -20,8 +20,9 @@ import org.openjdk.jmh.infra.Blackhole;
 
 /**
  * Benchmark comparing random read I/O strategies: mmap (normal, MADV_RANDOM, MADV_RANDOM +
- * MADV_WILLNEED), FileChannel (NIOFSDirectory-style), FFI pread(2), and O_DIRECT — under varying
- * concurrency and memory pressure.
+ * MADV_WILLNEED), FileChannel, FFI pread, and O_DIRECT — under varying concurrency and memory
+ * pressure. Each operation picks a random offset reading 16KB data for 16 times (256KB total per
+ * op).
  *
  * <p>Run with:
  *
@@ -29,8 +30,8 @@ import org.openjdk.jmh.infra.Blackhole;
  *   dd if=/dev/urandom of=/path/to/bench-16G.dat bs=1M count=16384
  *   BENCH_FILE=/path/to/bench-16G.dat
  *   BENCH_FILE_SIZE_MIB=16384
- *   BENCH_DROP_CACHES=true
- *   ./gradlew jmh --rerun -Pjmh.includes='RandomReadIOBenchmark'
+ *   BENCH_DROP_CACHES=false
+ *   java -jar lucene/benchmark-jmh/build/benchmarks/lucene-benchmark-jmh.jar RandomReadIOBenchmark
  * </pre>
  */
 @BenchmarkMode(Mode.Throughput)
