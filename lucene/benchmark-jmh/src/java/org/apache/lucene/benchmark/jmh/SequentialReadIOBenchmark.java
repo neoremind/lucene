@@ -76,21 +76,6 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
     seqPosition = offset;
   }
 
-  // ======== mmap + MADV_RANDOM, no prefetch (page-by-page faults) ========
-
-  @Benchmark
-  public void mmapMadvRandomNoPrefetch(ThreadBuffers tb, Blackhole bh) {
-    byte[] dst = tb.heapBuf.array();
-    long offset = seqPosition;
-    for (int i = 0; i < readsPerOp; i++) {
-      MemorySegment.copy(mmapSegmentMadvRandom, ValueLayout.JAVA_BYTE, offset, dst, 0, readSize);
-      bh.consume(dst[0]);
-      offset += readSize;
-      if (offset >= FILE_SIZE) offset = 0;
-    }
-    seqPosition = offset;
-  }
-
   // ======== mmap + MADV_RANDOM + sliding 2MB WILLNEED window ========
 
   @Benchmark
@@ -100,14 +85,14 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
     try {
       long prefetchOff = offset + (long) readsPerOp * readSize;
       if (prefetchOff + PREFETCH_WINDOW <= FILE_SIZE) {
-        MemorySegment slice = mmapSegmentMadvRandom.asSlice(prefetchOff, PREFETCH_WINDOW);
-        POSIX_MADVISE.invokeExact(slice, PREFETCH_WINDOW, MADV_WILLNEED);
+        MemorySegment slice = mmapSegmentNormal.asSlice(prefetchOff, PREFETCH_WINDOW);
+        int rc = (int) POSIX_MADVISE.invokeExact(slice, PREFETCH_WINDOW, MADV_WILLNEED);
       }
     } catch (Throwable t) {
       throw new RuntimeException(t);
     }
     for (int i = 0; i < readsPerOp; i++) {
-      MemorySegment.copy(mmapSegmentMadvRandom, ValueLayout.JAVA_BYTE, offset, dst, 0, readSize);
+      MemorySegment.copy(mmapSegmentNormal, ValueLayout.JAVA_BYTE, offset, dst, 0, readSize);
       bh.consume(dst[0]);
       offset += readSize;
       if (offset >= FILE_SIZE) offset = 0;
