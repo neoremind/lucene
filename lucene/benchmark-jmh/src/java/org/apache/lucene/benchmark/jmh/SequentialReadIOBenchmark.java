@@ -55,13 +55,13 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
   @Param({"64"})
   public int readsPerOp;
 
-  /** Sliding prefetch window size: 2MB ahead of current read position. */
+  /** Sliding prefetch window size. */
   private static final long PREFETCH_WINDOW = 2 * 1024 * 1024;
 
   /** Current sequential scan position — advances across JMH invocations, wraps at EOF. */
   private long seqPosition = 0;
 
-  // ======== mmap NORMAL (kernel sequential readahead) ========
+  // ======== mmap NORMAL ========
 
   @Benchmark
   public void mmapNormal(ThreadBuffers tb, Blackhole bh) {
@@ -76,10 +76,10 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
     seqPosition = offset;
   }
 
-  // ======== mmap + MADV_RANDOM + sliding 2MB WILLNEED window ========
+  // ======== mmap NORMAL + sliding 2MB WILLNEED prefetch window ========
 
   @Benchmark
-  public void mmapSlidingPrefetch(ThreadBuffers tb, Blackhole bh) {
+  public void mmapBatchedWillneed(ThreadBuffers tb, Blackhole bh) {
     byte[] dst = tb.heapBuf.array();
     long offset = seqPosition;
     try {
@@ -100,7 +100,7 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
     seqPosition = offset;
   }
 
-  // ======== FFI pread (serial sequential) ========
+  // ======== FFI pread ========
 
   @Benchmark
   public void ffiPread(ThreadBuffers tb, Blackhole bh) {
@@ -119,7 +119,7 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
     seqPosition = offset;
   }
 
-  // ======== FileChannel + DirectByteBuffer (serial sequential) ========
+  // ======== FileChannel + DirectByteBuffer ========
 
   @Benchmark
   public void fileChannelDirect(ThreadBuffers tb, Blackhole bh) throws IOException {
@@ -135,7 +135,7 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
     seqPosition = offset;
   }
 
-  // ======== FFI pread + O_DIRECT (serial sequential) ========
+  // ======== FFI pread + O_DIRECT ========
 
   @Benchmark
   public void ffiPreadDirectIO(ThreadBuffers tb, Blackhole bh) {
