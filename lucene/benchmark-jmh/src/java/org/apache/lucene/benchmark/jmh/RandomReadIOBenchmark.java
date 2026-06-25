@@ -142,6 +142,32 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
     doMmapBatchedWillneedReads(tb, bh);
   }
 
+  // ======== mmap RANDOM + batched MADV_WILLNEED ========
+
+  @Benchmark
+  @Threads(1)
+  public void mmapMadvRandomBatchedWillneed_T01(ThreadBuffers tb, Blackhole bh) {
+    doMmapMadvRandomBatchedWillneedReads(tb, bh);
+  }
+
+  @Benchmark
+  @Threads(4)
+  public void mmapMadvRandomBatchedWillneed_T04(ThreadBuffers tb, Blackhole bh) {
+    doMmapMadvRandomBatchedWillneedReads(tb, bh);
+  }
+
+  @Benchmark
+  @Threads(8)
+  public void mmapMadvRandomBatchedWillneed_T08(ThreadBuffers tb, Blackhole bh) {
+    doMmapMadvRandomBatchedWillneedReads(tb, bh);
+  }
+
+  @Benchmark
+  @Threads(16)
+  public void mmapMadvRandomBatchedWillneed_T16(ThreadBuffers tb, Blackhole bh) {
+    doMmapMadvRandomBatchedWillneedReads(tb, bh);
+  }
+
   // ======== FFI pread ========
 
   @Benchmark
@@ -256,6 +282,27 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
       }
       for (int i = 0; i < readsPerOp; i++) {
         MemorySegment.copy(mmapSegmentNormal, ValueLayout.JAVA_BYTE, offsets[i], dst, 0, readSize);
+        bh.consume(dst[0]);
+      }
+    } catch (Throwable t) {
+      throw new RuntimeException(t);
+    }
+  }
+
+  private void doMmapMadvRandomBatchedWillneedReads(ThreadBuffers tb, Blackhole bh) {
+    ThreadLocalRandom rng = ThreadLocalRandom.current();
+    byte[] dst = tb.heapBuf.array();
+    long[] offsets = new long[readsPerOp];
+    try {
+      for (int i = 0; i < readsPerOp; i++) {
+        offsets[i] = rng.nextLong(maxOffset);
+      }
+      for (int i = 0; i < readsPerOp; i++) {
+        MemorySegment slice = mmapSegmentMadvRandom.asSlice(offsets[i], readSize);
+        int rc = (int) POSIX_MADVISE.invokeExact(slice, (long) readSize, MADV_WILLNEED);
+      }
+      for (int i = 0; i < readsPerOp; i++) {
+        MemorySegment.copy(mmapSegmentMadvRandom, ValueLayout.JAVA_BYTE, offsets[i], dst, 0, readSize);
         bh.consume(dst[0]);
       }
     } catch (Throwable t) {
