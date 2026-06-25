@@ -120,52 +120,52 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
 
   @Benchmark
   @Threads(1)
-  public void mmapBatchedWillneed_T01(ThreadBuffers tb, Blackhole bh) {
-    doMmapBatchedWillneedReads(tb, bh);
+  public void mmapBatchedPrefetch_T01(ThreadBuffers tb, Blackhole bh) {
+    doMmapBatchedPrefetch(tb, bh);
   }
 
   @Benchmark
   @Threads(4)
-  public void mmapBatchedWillneed_T04(ThreadBuffers tb, Blackhole bh) {
-    doMmapBatchedWillneedReads(tb, bh);
+  public void mmapBatchedPrefetch_T04(ThreadBuffers tb, Blackhole bh) {
+    doMmapBatchedPrefetch(tb, bh);
   }
 
   @Benchmark
   @Threads(8)
-  public void mmapBatchedWillneed_T08(ThreadBuffers tb, Blackhole bh) {
-    doMmapBatchedWillneedReads(tb, bh);
+  public void mmapBatchedPrefetch_T08(ThreadBuffers tb, Blackhole bh) {
+    doMmapBatchedPrefetch(tb, bh);
   }
 
   @Benchmark
   @Threads(16)
-  public void mmapBatchedWillneed_T16(ThreadBuffers tb, Blackhole bh) {
-    doMmapBatchedWillneedReads(tb, bh);
+  public void mmapBatchedPrefetch_T16(ThreadBuffers tb, Blackhole bh) {
+    doMmapBatchedPrefetch(tb, bh);
   }
 
   // ======== mmap RANDOM + batched MADV_WILLNEED ========
 
   @Benchmark
   @Threads(1)
-  public void mmapMadvRandomBatchedWillneed_T01(ThreadBuffers tb, Blackhole bh) {
-    doMmapMadvRandomBatchedWillneedReads(tb, bh);
+  public void mmapMadvRandomBatchedPrefetch_T01(ThreadBuffers tb, Blackhole bh) {
+    doMmapMadvRandomBatchedPrefetch(tb, bh);
   }
 
   @Benchmark
   @Threads(4)
-  public void mmapMadvRandomBatchedWillneed_T04(ThreadBuffers tb, Blackhole bh) {
-    doMmapMadvRandomBatchedWillneedReads(tb, bh);
+  public void mmapMadvRandomBatchedPrefetch_T04(ThreadBuffers tb, Blackhole bh) {
+    doMmapMadvRandomBatchedPrefetch(tb, bh);
   }
 
   @Benchmark
   @Threads(8)
-  public void mmapMadvRandomBatchedWillneed_T08(ThreadBuffers tb, Blackhole bh) {
-    doMmapMadvRandomBatchedWillneedReads(tb, bh);
+  public void mmapMadvRandomBatchedPrefetch_T08(ThreadBuffers tb, Blackhole bh) {
+    doMmapMadvRandomBatchedPrefetch(tb, bh);
   }
 
   @Benchmark
   @Threads(16)
-  public void mmapMadvRandomBatchedWillneed_T16(ThreadBuffers tb, Blackhole bh) {
-    doMmapMadvRandomBatchedWillneedReads(tb, bh);
+  public void mmapMadvRandomBatchedPrefetch_T16(ThreadBuffers tb, Blackhole bh) {
+    doMmapMadvRandomBatchedPrefetch(tb, bh);
   }
 
   // ======== FFI pread ========
@@ -268,7 +268,7 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
     }
   }
 
-  private void doMmapBatchedWillneedReads(ThreadBuffers tb, Blackhole bh) {
+  private void doMmapBatchedPrefetch(ThreadBuffers tb, Blackhole bh) {
     ThreadLocalRandom rng = ThreadLocalRandom.current();
     byte[] dst = tb.heapBuf.array();
     long[] offsets = new long[readsPerOp];
@@ -289,7 +289,7 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
     }
   }
 
-  private void doMmapMadvRandomBatchedWillneedReads(ThreadBuffers tb, Blackhole bh) {
+  private void doMmapMadvRandomBatchedPrefetch(ThreadBuffers tb, Blackhole bh) {
     ThreadLocalRandom rng = ThreadLocalRandom.current();
     byte[] dst = tb.heapBuf.array();
     long[] offsets = new long[readsPerOp];

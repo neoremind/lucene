@@ -41,10 +41,10 @@ import org.openjdk.jmh.infra.Blackhole;
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
 @State(Scope.Benchmark)
-@Warmup(iterations = 2, time = 5)
-@Measurement(iterations = 3, time = 10)
+@Warmup(iterations = 1, time = 2)
+@Measurement(iterations = 1, time = 3)
 @Fork(
-    value = 2,
+    value = 1,
     jvmArgsPrepend = {"--enable-native-access=ALL-UNNAMED", "-Xms2g", "-Xmx2g"})
 @Threads(1)
 public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
