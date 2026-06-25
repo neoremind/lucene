@@ -41,8 +41,8 @@ import org.openjdk.jmh.infra.Blackhole;
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
 @State(Scope.Benchmark)
-@Warmup(iterations = 3, time = 3)
-@Measurement(iterations = 5, time = 5)
+@Warmup(iterations = 2, time = 3)
+@Measurement(iterations = 3, time = 5)
 @Fork(
     value = 2,
     jvmArgsPrepend = {"--enable-native-access=ALL-UNNAMED", "-Xms2g", "-Xmx2g"})
@@ -222,25 +222,25 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
 
   // ======== FFI pread + O_DIRECT ========
 
-  @Benchmark
+  //@Benchmark
   @Threads(1)
   public void ffiPreadDirectIO_T01(ThreadBuffers tb, Blackhole bh) {
     doFfiDirectIoReads(tb, bh);
   }
 
-  @Benchmark
+  //@Benchmark
   @Threads(4)
   public void ffiPreadDirectIO_T04(ThreadBuffers tb, Blackhole bh) {
     doFfiDirectIoReads(tb, bh);
   }
 
-  @Benchmark
+  //@Benchmark
   @Threads(8)
   public void ffiPreadDirectIO_T08(ThreadBuffers tb, Blackhole bh) {
     doFfiDirectIoReads(tb, bh);
   }
 
-  @Benchmark
+  //@Benchmark
   @Threads(16)
   public void ffiPreadDirectIO_T16(ThreadBuffers tb, Blackhole bh) {
     doFfiDirectIoReads(tb, bh);
