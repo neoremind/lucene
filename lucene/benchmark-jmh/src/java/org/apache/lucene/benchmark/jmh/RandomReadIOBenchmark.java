@@ -198,49 +198,49 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
 
   @Benchmark
   @Threads(1)
-  public void fileChannelDirect_T01(ThreadBuffers tb, Blackhole bh) throws IOException {
+  public void fileChannelDirectBuffer_T01(ThreadBuffers tb, Blackhole bh) throws IOException {
     doFileChannelDirectReads(tb, bh);
   }
 
   @Benchmark
   @Threads(4)
-  public void fileChannelDirect_T04(ThreadBuffers tb, Blackhole bh) throws IOException {
+  public void fileChannelDirectBuffer_T04(ThreadBuffers tb, Blackhole bh) throws IOException {
     doFileChannelDirectReads(tb, bh);
   }
 
   @Benchmark
   @Threads(8)
-  public void fileChannelDirect_T08(ThreadBuffers tb, Blackhole bh) throws IOException {
+  public void fileChannelDirectBuffer_T08(ThreadBuffers tb, Blackhole bh) throws IOException {
     doFileChannelDirectReads(tb, bh);
   }
 
   @Benchmark
   @Threads(16)
-  public void fileChannelDirect_T16(ThreadBuffers tb, Blackhole bh) throws IOException {
+  public void fileChannelDirectBuffer_T16(ThreadBuffers tb, Blackhole bh) throws IOException {
     doFileChannelDirectReads(tb, bh);
   }
 
   // ======== FFI pread + O_DIRECT ========
 
-  //@Benchmark
+  // @Benchmark
   @Threads(1)
   public void ffiPreadDirectIO_T01(ThreadBuffers tb, Blackhole bh) {
     doFfiDirectIoReads(tb, bh);
   }
 
-  //@Benchmark
+  // @Benchmark
   @Threads(4)
   public void ffiPreadDirectIO_T04(ThreadBuffers tb, Blackhole bh) {
     doFfiDirectIoReads(tb, bh);
   }
 
-  //@Benchmark
+  // @Benchmark
   @Threads(8)
   public void ffiPreadDirectIO_T08(ThreadBuffers tb, Blackhole bh) {
     doFfiDirectIoReads(tb, bh);
   }
 
-  //@Benchmark
+  // @Benchmark
   @Threads(16)
   public void ffiPreadDirectIO_T16(ThreadBuffers tb, Blackhole bh) {
     doFfiDirectIoReads(tb, bh);
@@ -302,7 +302,8 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
         int rc = (int) POSIX_MADVISE.invokeExact(slice, (long) readSize, MADV_WILLNEED);
       }
       for (int i = 0; i < readsPerOp; i++) {
-        MemorySegment.copy(mmapSegmentMadvRandom, ValueLayout.JAVA_BYTE, offsets[i], dst, 0, readSize);
+        MemorySegment.copy(
+            mmapSegmentMadvRandom, ValueLayout.JAVA_BYTE, offsets[i], dst, 0, readSize);
         bh.consume(dst[0]);
       }
     } catch (Throwable t) {

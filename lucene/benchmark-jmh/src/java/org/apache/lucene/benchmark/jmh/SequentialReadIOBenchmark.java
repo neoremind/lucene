@@ -64,14 +64,16 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
   // ======== mmap NORMAL ========
 
   @Benchmark
-  public void mmapNormal(ThreadBuffers tb, Blackhole bh) {
+  public void mmap(ThreadBuffers tb, Blackhole bh) {
     byte[] dst = tb.heapBuf.array();
     long offset = seqPosition;
     for (int i = 0; i < readsPerOp; i++) {
       MemorySegment.copy(mmapSegmentNormal, ValueLayout.JAVA_BYTE, offset, dst, 0, readSize);
       bh.consume(dst[0]);
       offset += readSize;
-      if (offset >= FILE_SIZE) offset = 0;
+      if (offset >= FILE_SIZE) {
+        offset = 0;
+      }
     }
     seqPosition = offset;
   }
@@ -79,7 +81,7 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
   // ======== mmap NORMAL + sliding 2MB WILLNEED prefetch window ========
 
   @Benchmark
-  public void mmapBatchedWillneed(ThreadBuffers tb, Blackhole bh) {
+  public void mmapBatchedPrefetch(ThreadBuffers tb, Blackhole bh) {
     byte[] dst = tb.heapBuf.array();
     long offset = seqPosition;
     try {
@@ -95,7 +97,9 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
       MemorySegment.copy(mmapSegmentNormal, ValueLayout.JAVA_BYTE, offset, dst, 0, readSize);
       bh.consume(dst[0]);
       offset += readSize;
-      if (offset >= FILE_SIZE) offset = 0;
+      if (offset >= FILE_SIZE) {
+        offset = 0;
+      }
     }
     seqPosition = offset;
   }
@@ -111,7 +115,9 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
         long n = (long) PREAD.invokeExact(nativeFd, buf, (long) readSize, offset);
         bh.consume(n);
         offset += readSize;
-        if (offset >= FILE_SIZE) offset = 0;
+        if (offset >= FILE_SIZE) {
+          offset = 0;
+        }
       }
     } catch (Throwable t) {
       throw new RuntimeException(t);
@@ -122,7 +128,7 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
   // ======== FileChannel + DirectByteBuffer ========
 
   @Benchmark
-  public void fileChannelDirect(ThreadBuffers tb, Blackhole bh) throws IOException {
+  public void fileChannelDirectBuffer(ThreadBuffers tb, Blackhole bh) throws IOException {
     ByteBuffer buf = tb.directBuf;
     long offset = seqPosition;
     for (int i = 0; i < readsPerOp; i++) {
