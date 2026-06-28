@@ -281,7 +281,7 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
         long aoff = offsets[i] - offsetInPage;
         long alen = readSize + offsetInPage;
         MemorySegment slice = mmapSegmentNormal.asSlice(aoff, alen);
-        int rc = (int) POSIX_MADVISE.invokeExact(slice, (long) readSize, MADV_WILLNEED);
+        int rc = (int) POSIX_MADVISE.invokeExact(slice, alen, MADV_WILLNEED);
         if (rc != 0) {
           throw new RuntimeException("posix_madvise prefetch failed " + offsets[i]);
         }
@@ -308,7 +308,7 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
         long aoff = offsets[i] - offsetInPage;
         long alen = readSize + offsetInPage;
         MemorySegment slice = mmapSegmentMadvRandom.asSlice(aoff, alen);
-        int rc = (int) POSIX_MADVISE.invokeExact(slice, (long) readSize, MADV_WILLNEED);
+        int rc = (int) POSIX_MADVISE.invokeExact(slice, alen, MADV_WILLNEED);
         if (rc != 0) {
           throw new RuntimeException("posix_madvise prefetch failed " + offsets[i]);
         }
