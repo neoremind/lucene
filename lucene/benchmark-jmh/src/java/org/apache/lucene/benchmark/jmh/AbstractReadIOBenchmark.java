@@ -319,17 +319,17 @@ public abstract class AbstractReadIOBenchmark {
   }
 
   @TearDown(Level.Trial)
-  @SuppressWarnings({"restricted"})
+  @SuppressWarnings({"restricted", "unused"})
   public void tearDown() throws Exception {
     if (fileChannel != null) {
       fileChannel.close();
     }
     try {
       if (preadFd > 0) {
-        CLOSE.invokeExact(preadFd);
+        int rc = (int) CLOSE.invokeExact(preadFd);
       }
       if (directIOFd > 0) {
-        CLOSE.invokeExact(directIOFd);
+        int rc = (int) CLOSE.invokeExact(directIOFd);
       }
     } catch (Throwable t) {
       throw new RuntimeException("Failed to close fd", t);
