@@ -38,8 +38,8 @@ import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
 
 /**
- * Abstract base for read I/O benchmarks. Provides shared FFI handles (pread, open, close, posix_madvise, fcntl),
- * thread-local buffers, and file/mmap/fd setups.
+ * Abstract base for read I/O benchmarks. Provides shared FFI handles (pread, open, close,
+ * posix_madvise, fcntl), thread-local buffers, and file/mmap/fd setups.
  */
 @State(Scope.Benchmark)
 public abstract class AbstractReadIOBenchmark {
@@ -56,17 +56,22 @@ public abstract class AbstractReadIOBenchmark {
   /** Max read size for buffer pre-allocation. Actual read size is a @Param on subclasses. */
   protected static final int MAX_READ_SIZE = 1024 * 1024;
 
-  /** Max reads per operation for buffer pre-allocation. Actual readsPerOp is a @Param on subclasses. */
+  /**
+   * Max reads per operation for buffer pre-allocation. Actual readsPerOp is a @Param on subclasses.
+   */
   protected static final int MAX_READS_PER_OPERATION = 256;
 
   protected static final long FILE_SIZE =
-      Long.parseLong(getConfigFromEnvOrProp("BENCH_FILE_SIZE_MB", "bench.fileSizeMB", "1024")) * 1024L * 1024L;
+      Long.parseLong(getConfigFromEnvOrProp("BENCH_FILE_SIZE_MB", "bench.fileSizeMB", "1024"))
+          * 1024L
+          * 1024L;
 
   protected static final String BENCH_FILE =
       getConfigFromEnvOrProp("BENCH_FILE", "bench.file", "/tmp/pread-bench.dat");
 
   protected static final boolean DROP_PAGE_CACHE =
-      Boolean.parseBoolean(getConfigFromEnvOrProp("BENCH_DROP_CACHES", "bench.dropPageCache", "false"));
+      Boolean.parseBoolean(
+          getConfigFromEnvOrProp("BENCH_DROP_CACHES", "bench.dropPageCache", "false"));
 
   protected static final int POSIX_MADV_RANDOM = 1;
   protected static final int POSIX_MADV_SEQUENTIAL = 2;
@@ -85,26 +90,37 @@ public abstract class AbstractReadIOBenchmark {
     final Linker linker = Linker.nativeLinker();
     final SymbolLookup stdlib = linker.defaultLookup();
 
-    PREAD = findFunction(
-        linker, stdlib, "pread", FunctionDescriptor.of(
-            ValueLayout.JAVA_LONG,
-            ValueLayout.JAVA_INT,
-            ValueLayout.ADDRESS,
-            ValueLayout.JAVA_LONG,
-            ValueLayout.JAVA_LONG));
+    PREAD =
+        findFunction(
+            linker,
+            stdlib,
+            "pread",
+            FunctionDescriptor.of(
+                ValueLayout.JAVA_LONG,
+                ValueLayout.JAVA_INT,
+                ValueLayout.ADDRESS,
+                ValueLayout.JAVA_LONG,
+                ValueLayout.JAVA_LONG));
 
-    OPEN = findFunction(
-        linker, stdlib, "open",
-        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    OPEN =
+        findFunction(
+            linker,
+            stdlib,
+            "open",
+            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
 
     CLOSE =
         findFunction(
-            linker, stdlib, "close",
+            linker,
+            stdlib,
+            "close",
             FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
 
     POSIX_MADVISE =
         findFunction(
-            linker, stdlib, "posix_madvise",
+            linker,
+            stdlib,
+            "posix_madvise",
             FunctionDescriptor.of(
                 ValueLayout.JAVA_INT,
                 ValueLayout.ADDRESS,
@@ -113,7 +129,9 @@ public abstract class AbstractReadIOBenchmark {
 
     FCNTL =
         findFunction(
-            linker, stdlib, "fcntl",
+            linker,
+            stdlib,
+            "fcntl",
             FunctionDescriptor.of(
                 ValueLayout.JAVA_INT,
                 ValueLayout.JAVA_INT,
@@ -122,8 +140,10 @@ public abstract class AbstractReadIOBenchmark {
 
     try {
       PAGE_SIZE =
-          (int) findFunction(
-              linker, stdlib, "getpagesize", FunctionDescriptor.of(ValueLayout.JAVA_INT)).invokeExact();
+          (int)
+              findFunction(
+                      linker, stdlib, "getpagesize", FunctionDescriptor.of(ValueLayout.JAVA_INT))
+                  .invokeExact();
     } catch (Throwable e) {
       throw new RuntimeException("getpagesize() failed", e);
     }
@@ -187,7 +207,11 @@ public abstract class AbstractReadIOBenchmark {
   protected void validateReadsPerOp(int readsPerOp) {
     if (readsPerOp > MAX_READS_PER_OPERATION) {
       throw new IllegalArgumentException(
-          "readsPerOp (" + readsPerOp + ") exceeds MAX_READS_PER_OPERATION (" + MAX_READS_PER_OPERATION + ").");
+          "readsPerOp ("
+              + readsPerOp
+              + ") exceeds MAX_READS_PER_OPERATION ("
+              + MAX_READS_PER_OPERATION
+              + ").");
     }
   }
 
@@ -346,7 +370,8 @@ public abstract class AbstractReadIOBenchmark {
   }
 
   /** Reads a config value from env var first, then system property, then default. */
-  protected static String getConfigFromEnvOrProp(String envKey, String propKey, String defaultValue) {
+  protected static String getConfigFromEnvOrProp(
+      String envKey, String propKey, String defaultValue) {
     String env = System.getenv(envKey);
     if (env != null && !env.isEmpty()) {
       return env;

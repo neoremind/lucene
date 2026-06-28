@@ -63,7 +63,11 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
     validateReadsPerOp(readsPerOp);
     if (directIOFd >= 0 && readSize % PAGE_SIZE != 0) {
       throw new IllegalArgumentException(
-          "readSize (" + readSize + ") must be a multiple of PAGE_SIZE (" + PAGE_SIZE + ") for O_DIRECT.");
+          "readSize ("
+              + readSize
+              + ") must be a multiple of PAGE_SIZE ("
+              + PAGE_SIZE
+              + ") for O_DIRECT.");
     }
     maxOffset = FILE_SIZE - readSize;
     maxAlignedOffset = (maxOffset / PAGE_SIZE) * PAGE_SIZE;
@@ -308,8 +312,7 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
       madvise(slice, POSIX_MADV_WILLNEED);
     }
     for (int i = 0; i < readsPerOp; i++) {
-      MemorySegment.copy(
-          mmapSegmentRandom, ValueLayout.JAVA_BYTE, offsets[i], dst, 0, readSize);
+      MemorySegment.copy(mmapSegmentRandom, ValueLayout.JAVA_BYTE, offsets[i], dst, 0, readSize);
       bh.consume(dst[0]);
     }
   }

@@ -37,8 +37,8 @@ import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.infra.Blackhole;
 
 /**
- * Benchmark comparing sequential (whole-file scan) I/O strategies. Single-threaded. Each op reads {@code readsPerOp}
- * pages sequentially forward from the current file position, wrapping at EOF.
+ * Benchmark comparing sequential (whole-file scan) I/O strategies. Single-threaded. Each op reads
+ * {@code readsPerOp} pages sequentially forward from the current file position, wrapping at EOF.
  */
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
@@ -73,7 +73,11 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
     validateReadsPerOp(readsPerOp);
     if (directIOFd >= 0 && readSize % PAGE_SIZE != 0) {
       throw new IllegalArgumentException(
-          "readSize (" + readSize + ") must be a multiple of PAGE_SIZE (" + PAGE_SIZE + ") for O_DIRECT.");
+          "readSize ("
+              + readSize
+              + ") must be a multiple of PAGE_SIZE ("
+              + PAGE_SIZE
+              + ") for O_DIRECT.");
     }
     maxOffset = FILE_SIZE - readSize;
   }
@@ -154,7 +158,9 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
         long prefetchStart = prefetchedUpTo;
         long prefetchEnd = Math.min(offset + PREFETCH_WINDOW, FILE_SIZE);
         if (prefetchStart < prefetchEnd) {
-          madvise(mmapSegmentRandom.asSlice(prefetchStart, prefetchEnd - prefetchStart), POSIX_MADV_WILLNEED);
+          madvise(
+              mmapSegmentRandom.asSlice(prefetchStart, prefetchEnd - prefetchStart),
+              POSIX_MADV_WILLNEED);
         }
         prefetchedUpTo = prefetchEnd;
       }
