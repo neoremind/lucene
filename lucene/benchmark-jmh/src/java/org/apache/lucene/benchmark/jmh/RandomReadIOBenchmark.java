@@ -277,7 +277,10 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
         offsets[i] = rng.nextLong(maxOffset);
       }
       for (int i = 0; i < readsPerOp; i++) {
-        MemorySegment slice = mmapSegmentNormal.asSlice(offsets[i], readSize);
+        long offsetInPage = (mmapSegmentNormal.address() + offsets[i]) % ALIGNMENT;
+        long aoff = offsets[i] - offsetInPage;
+        long alen = readSize + offsetInPage;
+        MemorySegment slice = mmapSegmentNormal.asSlice(aoff, alen);
         int rc = (int) POSIX_MADVISE.invokeExact(slice, (long) readSize, MADV_WILLNEED);
       }
       for (int i = 0; i < readsPerOp; i++) {
@@ -298,7 +301,10 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
         offsets[i] = rng.nextLong(maxOffset);
       }
       for (int i = 0; i < readsPerOp; i++) {
-        MemorySegment slice = mmapSegmentMadvRandom.asSlice(offsets[i], readSize);
+        long offsetInPage = (mmapSegmentMadvRandom.address() + offsets[i]) % ALIGNMENT;
+        long aoff = offsets[i] - offsetInPage;
+        long alen = readSize + offsetInPage;
+        MemorySegment slice = mmapSegmentMadvRandom.asSlice(aoff, alen);
         int rc = (int) POSIX_MADVISE.invokeExact(slice, (long) readSize, MADV_WILLNEED);
       }
       for (int i = 0; i < readsPerOp; i++) {
