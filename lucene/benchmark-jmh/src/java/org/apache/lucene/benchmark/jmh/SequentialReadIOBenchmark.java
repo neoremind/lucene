@@ -51,6 +51,8 @@ import org.openjdk.jmh.infra.Blackhole;
 @Threads(1)
 public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
 
+  private static final long PREFETCH_WINDOW = 2 * 1024 * 1024;
+
   @Param({"16384"})
   public int readSize;
 
@@ -59,6 +61,9 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
 
   /** Current sequential scan position — advances across JMH invocations, wraps at EOF. */
   private long seqPosition = 0;
+
+  /** Tracks how far ahead we've prefetched. */
+  private long prefetchedUpTo = 0;
 
   private long maxOffset;
 
@@ -107,7 +112,7 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
     seqPosition = offset;
   }
 
-  // ======== mmap RANDOM + sliding 2MB WILLNEED prefetch window ========
+  // ======== mmap RANDOM + batched prefetch ========
 
   @Benchmark
   public void mmapMadvRandomBatchedPrefetch(ThreadBuffers tb, Blackhole bh) throws IOException {
@@ -115,7 +120,10 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
     long offset = seqPosition;
     long prefetchOffset = offset;
     for (int i = 0; i < readsPerOp; i++) {
-      MemorySegment slice = mmapSegmentRandom.asSlice(prefetchOffset, readSize);
+      long offsetInPage = (mmapSegmentRandom.address() + prefetchOffset) % PAGE_SIZE;
+      long alignedOffset = prefetchOffset - offsetInPage;
+      long alignedLength = readSize + offsetInPage;
+      MemorySegment slice = mmapSegmentRandom.asSlice(alignedOffset, alignedLength);
       madvise(slice, POSIX_MADV_WILLNEED);
       prefetchOffset += readSize;
       if (prefetchOffset > maxOffset) {
@@ -128,6 +136,35 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
       offset += readSize;
       if (offset > maxOffset) {
         offset = 0;
+      }
+    }
+    seqPosition = offset;
+  }
+
+  // ======== mmap RANDOM + sliding 2MB WILLNEED prefetch window ========
+
+  @Benchmark
+  public void mmapMadvRandomSlidingPrefetch(ThreadBuffers tb, Blackhole bh) throws IOException {
+    byte[] dst = tb.heapBuf;
+    long offset = seqPosition;
+
+    for (int i = 0; i < readsPerOp; i++) {
+      // Slide the prefetch window ahead if needed
+      if (offset + PREFETCH_WINDOW > prefetchedUpTo) {
+        long prefetchStart = prefetchedUpTo;
+        long prefetchEnd = Math.min(offset + PREFETCH_WINDOW, FILE_SIZE);
+        if (prefetchStart < prefetchEnd) {
+          madvise(mmapSegmentRandom.asSlice(prefetchStart, prefetchEnd - prefetchStart), POSIX_MADV_WILLNEED);
+        }
+        prefetchedUpTo = prefetchEnd;
+      }
+
+      MemorySegment.copy(mmapSegmentRandom, ValueLayout.JAVA_BYTE, offset, dst, 0, readSize);
+      bh.consume(dst[0]);
+      offset += readSize;
+      if (offset > maxOffset) {
+        offset = 0;
+        prefetchedUpTo = 0;
       }
     }
     seqPosition = offset;
