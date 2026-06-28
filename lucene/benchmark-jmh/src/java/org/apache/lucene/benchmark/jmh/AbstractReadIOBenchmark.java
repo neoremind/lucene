@@ -54,7 +54,10 @@ public abstract class AbstractReadIOBenchmark {
       System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("linux");
 
   /** Max read size for buffer pre-allocation. Actual read size is a @Param on subclasses. */
-  protected static final int MAX_READ_SIZE = 1024 * 1024; // 1MB max
+  protected static final int MAX_READ_SIZE = 1024 * 1024;
+
+  /** Max reads per operation for buffer pre-allocation. Actual readsPerOp is a @Param on subclasses. */
+  protected static final int MAX_READS_PER_OPERATION = 256;
 
   protected static final long FILE_SIZE =
       Long.parseLong(getConfigFromEnvOrProp("BENCH_FILE_SIZE_MB", "bench.fileSizeMB", "1024")) * 1024L * 1024L;
@@ -147,6 +150,7 @@ public abstract class AbstractReadIOBenchmark {
     public Arena ffiArena;
     public MemorySegment ffiBuf;
     public MemorySegment ffiDirectIOBuf;
+    public long[] offsets;
 
     @Setup(Level.Trial)
     public void setup() {
@@ -155,6 +159,7 @@ public abstract class AbstractReadIOBenchmark {
       ffiArena = Arena.ofConfined();
       ffiBuf = ffiArena.allocate(MAX_READ_SIZE);
       ffiDirectIOBuf = ffiArena.allocate(MAX_READ_SIZE, PAGE_SIZE);
+      offsets = new long[MAX_READS_PER_OPERATION];
     }
 
     @TearDown(Level.Trial)
@@ -176,6 +181,13 @@ public abstract class AbstractReadIOBenchmark {
     if (readSize > MAX_READ_SIZE) {
       throw new IllegalArgumentException(
           "readSize (" + readSize + ") exceeds MAX_READ_SIZE (" + MAX_READ_SIZE + ").");
+    }
+  }
+
+  protected void validateReadsPerOp(int readsPerOp) {
+    if (readsPerOp > MAX_READS_PER_OPERATION) {
+      throw new IllegalArgumentException(
+          "readsPerOp (" + readsPerOp + ") exceeds MAX_READS_PER_OPERATION (" + MAX_READS_PER_OPERATION + ").");
     }
   }
 
@@ -225,7 +237,7 @@ public abstract class AbstractReadIOBenchmark {
     madvise(mmapSegmentRandom, POSIX_MADV_RANDOM);
   }
 
-  private void madvise(MemorySegment segment, int advice) throws IOException {
+  protected void madvise(MemorySegment segment, int advice) throws IOException {
     if (segment.byteSize() == 0L) {
       return;
     }
