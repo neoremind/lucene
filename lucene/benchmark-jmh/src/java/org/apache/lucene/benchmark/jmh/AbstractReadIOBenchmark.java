@@ -38,8 +38,8 @@ import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.TearDown;
 
 /**
- * Abstract base for read I/O benchmarks. Provides shared FFI handles (pread, open, close, fcntl), Lucene
- * Directory/IndexInput setups, and per-thread state.
+ * Abstract base for read I/O benchmarks. Provides shared FFI handles (pread, open, close, fcntl),
+ * Lucene Directory/IndexInput setups, and per-thread state.
  */
 public abstract class AbstractReadIOBenchmark {
 
@@ -55,7 +55,9 @@ public abstract class AbstractReadIOBenchmark {
   /** Max read size for buffer pre-allocation. Actual read size is a @Param on subclasses. */
   protected static final int MAX_READ_SIZE = 512 * 1024;
 
-  /** Max reads per operation for buffer pre-allocation. Actual readsPerOp is a @Param on subclasses. */
+  /**
+   * Max reads per operation for buffer pre-allocation. Actual readsPerOp is a @Param on subclasses.
+   */
   protected static final int MAX_READS_PER_OPERATION = 1024;
 
   protected static final long FILE_SIZE =
@@ -122,7 +124,7 @@ public abstract class AbstractReadIOBenchmark {
       PAGE_SIZE =
           (int)
               findFunction(
-                  linker, stdlib, "getpagesize", FunctionDescriptor.of(ValueLayout.JAVA_INT))
+                      linker, stdlib, "getpagesize", FunctionDescriptor.of(ValueLayout.JAVA_INT))
                   .invokeExact();
     } catch (Throwable e) {
       throw new RuntimeException("getpagesize() failed", e);
@@ -389,6 +391,7 @@ public abstract class AbstractReadIOBenchmark {
 
     public void cleanup() throws IOException {
       mmapInput.close();
+      mmapSequentialInput.close();
       mmapRandomInput.close();
       niofsInput.close();
       ffiArena.close();

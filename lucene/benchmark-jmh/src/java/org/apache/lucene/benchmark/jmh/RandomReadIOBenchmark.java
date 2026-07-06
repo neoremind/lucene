@@ -269,18 +269,21 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
   }
 
   private void doIndexInputReads(IndexInput input, byte[] dst, Blackhole bh) throws IOException {
+    ThreadLocalRandom rng = ThreadLocalRandom.current();
     for (int i = 0; i < readsPerOp; i++) {
-      long offset = ThreadLocalRandom.current().nextLong(maxOffset);
+      long offset = rng.nextLong(maxOffset);
       input.seek(offset);
       input.readBytes(dst, 0, readSize);
       bh.consume(dst[0]);
     }
   }
 
-  private void doBatchedPrefetchReads(IndexInput input, byte[] dst, Blackhole bh) throws IOException {
+  private void doBatchedPrefetchReads(IndexInput input, byte[] dst, Blackhole bh)
+      throws IOException {
+    ThreadLocalRandom rng = ThreadLocalRandom.current();
     long[] offsets = new long[readsPerOp];
     for (int i = 0; i < readsPerOp; i++) {
-      offsets[i] = ThreadLocalRandom.current().nextLong(maxOffset);
+      offsets[i] = rng.nextLong(maxOffset);
       input.prefetch(offsets[i], readSize);
     }
     for (int i = 0; i < readsPerOp; i++) {
@@ -291,10 +294,11 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
   }
 
   private void doFfiReads(ThreadState ts, Blackhole bh) {
+    ThreadLocalRandom rng = ThreadLocalRandom.current();
     MemorySegment buf = ts.ffiBuf;
     try {
       for (int i = 0; i < readsPerOp; i++) {
-        long offset = ThreadLocalRandom.current().nextLong(maxOffset);
+        long offset = rng.nextLong(maxOffset);
         long n = (long) PREAD.invokeExact(preadFd, buf, (long) readSize, offset);
         bh.consume(n);
       }
@@ -308,10 +312,11 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
       bh.consume(0);
       return;
     }
+    ThreadLocalRandom rng = ThreadLocalRandom.current();
     MemorySegment buf = ts.ffiDirectIOBuf;
     try {
       for (int i = 0; i < readsPerOp; i++) {
-        long offset = (ThreadLocalRandom.current().nextLong(maxAlignedOffset / PAGE_SIZE)) * PAGE_SIZE;
+        long offset = (rng.nextLong(maxAlignedOffset / PAGE_SIZE)) * PAGE_SIZE;
         long n = (long) PREAD.invokeExact(directIOFd, buf, (long) readSize, offset);
         bh.consume(n);
       }

@@ -18,11 +18,7 @@ package org.apache.lucene.benchmark.jmh;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
-import java.util.function.Supplier;
 import org.apache.lucene.store.IndexInput;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -55,13 +51,14 @@ import org.openjdk.jmh.infra.Blackhole;
 @Threads(1)
 public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
 
-  private static final long PREFETCH_WINDOW = 2 * 1024 * 1024;
-
   @Param({"16384"})
   public int readSize;
 
   @Param({"128"})
   public int readsPerOp;
+
+  @Param({"2097152"})
+  public long prefetchWindowSize;
 
   /** Current sequential scan position — advances across JMH invocations, wraps at EOF. */
   private long seqPosition = 0;
@@ -104,56 +101,44 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
 
   @Benchmark
   public void mmap(ThreadState ts, Blackhole bh) throws IOException {
-    doSequentialReads(ts.mmapInput, null, ts.heapBuf, bh);
+    doSequentialReads(ts.mmapInput, ts.heapBuf, bh);
   }
 
   // ======== mmap SEQUENTIAL ========
 
   @Benchmark
-  public void mmapSequential(ThreadState ts, Blackhole bh) throws IOException {
-    doSequentialReads(ts.mmapSequentialInput, null, ts.heapBuf, bh);
+  public void mmapMadvSequential(ThreadState ts, Blackhole bh) throws IOException {
+    doSequentialReads(ts.mmapSequentialInput, ts.heapBuf, bh);
   }
 
   // ======== mmap RANDOM ========
 
   @Benchmark
-  public void mmapRandom(ThreadState ts, Blackhole bh) throws IOException {
-    doSequentialReads(ts.mmapRandomInput, null, ts.heapBuf, bh);
+  public void mmapMadvRandom(ThreadState ts, Blackhole bh) throws IOException {
+    doSequentialReads(ts.mmapRandomInput, ts.heapBuf, bh);
   }
 
   // ======== mmap RANDOM + batched prefetch ========
 
   @Benchmark
-  public void mmapRandomBatchedPrefetch(ThreadState ts, Blackhole bh) throws IOException {
-    Consumer<IndexInput> prefetch = indexInput -> {
-      try {
-        batchedPrefetch(indexInput);
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
-    };
-    doSequentialReads(ts.mmapRandomInput, prefetch, ts.heapBuf, bh);
+  public void mmapMadvRandomBatchedPrefetch(ThreadState ts, Blackhole bh) throws IOException {
+    batchedPrefetch(ts.mmapRandomInput);
+    doSequentialReads(ts.mmapRandomInput, ts.heapBuf, bh);
   }
 
   // ======== mmap RANDOM + sliding prefetch window ========
 
   @Benchmark
-  public void mmapRandomSlidingWindowPrefetch(ThreadState ts, Blackhole bh) throws IOException {
-    Consumer<IndexInput> prefetch = indexInput -> {
-      try {
-        slidingWindowPrefetch(indexInput);
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
-    };
-    doSequentialReads(ts.mmapRandomInput, prefetch, ts.heapBuf, bh);
+  public void mmapMadvRandomSlidingWindowPrefetch(ThreadState ts, Blackhole bh) throws IOException {
+    slidingWindowPrefetch(ts.mmapRandomInput);
+    doSequentialReads(ts.mmapRandomInput, ts.heapBuf, bh);
   }
 
   // ======== NIOFSDirectory (FileChannel positioned reads) ========
 
   @Benchmark
   public void niofs(ThreadState ts, Blackhole bh) throws IOException {
-    doSequentialReads(ts.niofsInput, null, ts.heapBuf, bh);
+    doSequentialReads(ts.niofsInput, ts.heapBuf, bh);
   }
 
   // ======== FFI pread ========
@@ -172,7 +157,7 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
         }
       }
     } catch (Throwable t) {
-      throw new RuntimeException(t);
+      throw new RuntimeException("FFI Pread failed", t);
     }
     seqPosition = offset;
   }
@@ -197,16 +182,13 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
         }
       }
     } catch (Throwable t) {
-      throw new RuntimeException(t);
+      throw new RuntimeException("FFI Direct IO read failed", t);
     }
     seqPosition = offset;
   }
 
-  private void doSequentialReads(IndexInput input, Consumer<IndexInput> prefetch, byte[] dst, Blackhole bh) throws IOException {
+  private void doSequentialReads(IndexInput input, byte[] dst, Blackhole bh) throws IOException {
     long offset = seqPosition;
-    if (prefetch != null) {
-      prefetch.accept(input);
-    }
     for (int i = 0; i < readsPerOp; i++) {
       input.seek(offset);
       input.readBytes(dst, 0, readSize);
@@ -220,10 +202,10 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
   }
 
   private void batchedPrefetch(IndexInput input) throws IOException {
-    long offset = seqPosition;
-    long prefetchOffset = offset;
+    long prefetchOffset = seqPosition;
     for (int i = 0; i < readsPerOp; i++) {
       input.prefetch(prefetchOffset, readSize);
+      prefetchOffset += readSize;
       if (prefetchOffset > maxOffset) {
         prefetchOffset = 0;
       }
@@ -233,10 +215,15 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
   private void slidingWindowPrefetch(IndexInput input) throws IOException {
     long offset = seqPosition;
 
+    // Reset prefetch tracking on wrap-around
+    if (offset < prefetchedUpTo - prefetchWindowSize) {
+      prefetchedUpTo = offset;
+    }
+
     // Slide the prefetch window ahead if needed
-    if (offset + PREFETCH_WINDOW > prefetchedUpTo) {
+    if (offset + prefetchWindowSize > prefetchedUpTo) {
       long prefetchStart = prefetchedUpTo;
-      long prefetchEnd = Math.min(offset + PREFETCH_WINDOW, FILE_SIZE);
+      long prefetchEnd = Math.min(offset + prefetchWindowSize, FILE_SIZE);
       if (prefetchStart < prefetchEnd) {
         input.prefetch(prefetchStart, prefetchEnd - prefetchStart);
       }
