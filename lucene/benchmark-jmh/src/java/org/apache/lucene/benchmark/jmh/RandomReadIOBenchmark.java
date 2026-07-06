@@ -190,31 +190,6 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
     doBatchedPrefetchReads(ts.mmapRandomInput, ts.heapBuf, bh);
   }
 
-  // ======== NIOFSDirectory (FileChannel positioned reads) ========
-
-  @Benchmark
-  @Threads(1)
-  public void niofs_T01(ThreadState ts, Blackhole bh) throws IOException {
-    doIndexInputReads(ts.niofsInput, ts.heapBuf, bh);
-  }
-
-  @Benchmark
-  @Threads(4)
-  public void niofs_T04(ThreadState ts, Blackhole bh) throws IOException {
-    doIndexInputReads(ts.niofsInput, ts.heapBuf, bh);
-  }
-
-  @Benchmark
-  @Threads(8)
-  public void niofs_T08(ThreadState ts, Blackhole bh) throws IOException {
-    doIndexInputReads(ts.niofsInput, ts.heapBuf, bh);
-  }
-
-  @Benchmark
-  @Threads(16)
-  public void niofs_T16(ThreadState ts, Blackhole bh) throws IOException {
-    doIndexInputReads(ts.niofsInput, ts.heapBuf, bh);
-  }
 
   // ======== FFI pread ========
 
@@ -240,6 +215,32 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
   @Threads(16)
   public void ffiPread_T16(ThreadState ts, Blackhole bh) {
     doFfiReads(ts, bh);
+  }
+
+  // ======== NIOFSDirectory (FileChannel positioned reads) ========
+
+  @Benchmark
+  @Threads(1)
+  public void fileChannelNIOFS_T01(ThreadState ts, Blackhole bh) throws IOException {
+    doIndexInputReads(ts.niofsInput, ts.heapBuf, bh);
+  }
+
+  @Benchmark
+  @Threads(4)
+  public void fileChannelNIOFS_T04(ThreadState ts, Blackhole bh) throws IOException {
+    doIndexInputReads(ts.niofsInput, ts.heapBuf, bh);
+  }
+
+  @Benchmark
+  @Threads(8)
+  public void fileChannelNIOFS_T08(ThreadState ts, Blackhole bh) throws IOException {
+    doIndexInputReads(ts.niofsInput, ts.heapBuf, bh);
+  }
+
+  @Benchmark
+  @Threads(16)
+  public void fileChannelNIOFS_T16(ThreadState ts, Blackhole bh) throws IOException {
+    doIndexInputReads(ts.niofsInput, ts.heapBuf, bh);
   }
 
   // ======== FFI pread + O_DIRECT ========
@@ -284,6 +285,8 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
     long[] offsets = new long[readsPerOp];
     for (int i = 0; i < readsPerOp; i++) {
       offsets[i] = rng.nextLong(maxOffset);
+    }
+    for (int i = 0; i < readsPerOp; i++) {
       input.prefetch(offsets[i], readSize);
     }
     for (int i = 0; i < readsPerOp; i++) {
