@@ -57,14 +57,8 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
   @Param({"128"})
   public int readsPerOp;
 
-  @Param({"2097152"})
-  public long prefetchWindowSize;
-
   /** Current sequential scan position — advances across JMH invocations, wraps at EOF. */
   private long seqPosition = 0;
-
-  /** Tracks how far ahead we've prefetched. */
-  private long prefetchedUpTo = 0;
 
   private long maxOffset;
 
@@ -73,7 +67,7 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
   public static class ThreadState extends BaseThreadState {
     @Setup(Level.Trial)
     public void setup(SequentialReadIOBenchmark bench) throws IOException {
-      init(bench);
+      init(bench, bench.readSize);
     }
 
     @TearDown(Level.Trial)
@@ -83,9 +77,7 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
   }
 
   @Setup(Level.Trial)
-  public void validateParams() {
-    validateReadSize(readSize);
-    validateReadsPerOp(readsPerOp);
+  public void checkAndInit() {
     if (directIOFd >= 0 && readSize % PAGE_SIZE != 0) {
       throw new IllegalArgumentException(
           "readSize ("
@@ -126,18 +118,10 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
     doSequentialReads(ts.mmapRandomInput, ts.heapBuf, bh);
   }
 
-  // ======== mmap RANDOM + sliding prefetch window ========
-
-  @Benchmark
-  public void mmapMadvRandomSlidingWindowPrefetch(ThreadState ts, Blackhole bh) throws IOException {
-    slidingWindowPrefetch(ts.mmapRandomInput);
-    doSequentialReads(ts.mmapRandomInput, ts.heapBuf, bh);
-  }
-
   // ======== NIOFSDirectory (FileChannel positioned reads) ========
 
   @Benchmark
-  public void niofs(ThreadState ts, Blackhole bh) throws IOException {
+  public void fileChannelNIOFS(ThreadState ts, Blackhole bh) throws IOException {
     doSequentialReads(ts.niofsInput, ts.heapBuf, bh);
   }
 
@@ -209,25 +193,6 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
       if (prefetchOffset > maxOffset) {
         prefetchOffset = 0;
       }
-    }
-  }
-
-  private void slidingWindowPrefetch(IndexInput input) throws IOException {
-    long offset = seqPosition;
-
-    // Reset prefetch tracking on wrap-around
-    if (offset < prefetchedUpTo - prefetchWindowSize) {
-      prefetchedUpTo = offset;
-    }
-
-    // Slide the prefetch window ahead if needed
-    if (offset + prefetchWindowSize > prefetchedUpTo) {
-      long prefetchStart = prefetchedUpTo;
-      long prefetchEnd = Math.min(offset + prefetchWindowSize, FILE_SIZE);
-      if (prefetchStart < prefetchEnd) {
-        input.prefetch(prefetchStart, prefetchEnd - prefetchStart);
-      }
-      prefetchedUpTo = prefetchEnd;
     }
   }
 }

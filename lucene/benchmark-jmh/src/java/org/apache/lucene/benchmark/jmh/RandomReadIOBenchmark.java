@@ -48,7 +48,7 @@ import org.openjdk.jmh.infra.Blackhole;
     jvmArgsPrepend = {"--enable-native-access=ALL-UNNAMED", "-Xms2g", "-Xmx2g"})
 public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
 
-  @Param({"4096"})
+  @Param({"16384"})
   public int readSize;
 
   @Param({"16"})
@@ -61,7 +61,7 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
   public static class ThreadState extends BaseThreadState {
     @Setup(Level.Trial)
     public void setup(RandomReadIOBenchmark bench) throws IOException {
-      init(bench);
+      init(bench, bench.readSize);
     }
 
     @TearDown(Level.Trial)
@@ -71,9 +71,7 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
   }
 
   @Setup(Level.Trial)
-  public void validateParams() {
-    validateReadSize(readSize);
-    validateReadsPerOp(readsPerOp);
+  public void checkAndInit() {
     if (directIOFd >= 0 && readSize % PAGE_SIZE != 0) {
       throw new IllegalArgumentException(
           "readSize ("
@@ -189,7 +187,6 @@ public class RandomReadIOBenchmark extends AbstractReadIOBenchmark {
   public void mmapRandomBatchedPrefetch_T16(ThreadState ts, Blackhole bh) throws IOException {
     doBatchedPrefetchReads(ts.mmapRandomInput, ts.heapBuf, bh);
   }
-
 
   // ======== FFI pread ========
 

@@ -52,14 +52,6 @@ public abstract class AbstractReadIOBenchmark {
   /** macOS fcntl(2) command: disable unified buffer cache for this fd (equivalent to O_DIRECT). */
   private static final int F_NOCACHE = 48;
 
-  /** Max read size for buffer pre-allocation. Actual read size is a @Param on subclasses. */
-  protected static final int MAX_READ_SIZE = 512 * 1024;
-
-  /**
-   * Max reads per operation for buffer pre-allocation. Actual readsPerOp is a @Param on subclasses.
-   */
-  protected static final int MAX_READS_PER_OPERATION = 1024;
-
   protected static final long FILE_SIZE =
       Long.parseLong(getConfigFromEnvOrProp("BENCH_FILE_SIZE_MB", "bench.fileSizeMB", "1024"))
           * 1024L
@@ -161,24 +153,6 @@ public abstract class AbstractReadIOBenchmark {
   protected int directIOFd;
   protected Arena ffiArena;
 
-  protected void validateReadSize(int readSize) {
-    if (readSize > MAX_READ_SIZE) {
-      throw new IllegalArgumentException(
-          "readSize (" + readSize + ") exceeds MAX_READ_SIZE (" + MAX_READ_SIZE + ").");
-    }
-  }
-
-  protected void validateReadsPerOp(int readsPerOp) {
-    if (readsPerOp > MAX_READS_PER_OPERATION) {
-      throw new IllegalArgumentException(
-          "readsPerOp ("
-              + readsPerOp
-              + ") exceeds MAX_READS_PER_OPERATION ("
-              + MAX_READS_PER_OPERATION
-              + ").");
-    }
-  }
-
   @Setup(Level.Trial)
   public void setup() throws Exception {
     Path benchFile = Path.of(BENCH_FILE);
@@ -208,7 +182,7 @@ public abstract class AbstractReadIOBenchmark {
     String fileName = benchFile.getFileName().toString();
     Path dirPath = benchFile.getParent();
 
-    setupLuceneDirectories(dirPath, fileName);
+    setupMMapAndNIOFSDirectory(dirPath, fileName);
 
     // Setup FFI pread file descriptors
     ffiArena = Arena.ofShared();
@@ -216,7 +190,7 @@ public abstract class AbstractReadIOBenchmark {
     setupDirectIOFd(benchFile);
   }
 
-  private void setupLuceneDirectories(Path dirPath, String fileName) throws IOException {
+  private void setupMMapAndNIOFSDirectory(Path dirPath, String fileName) throws IOException {
     mmapDir = new MMapDirectory(dirPath);
     mmapInput = mmapDir.openInput(fileName, IOContext.DEFAULT);
 
@@ -378,15 +352,15 @@ public abstract class AbstractReadIOBenchmark {
     public MemorySegment ffiDirectIOBuf;
     public byte[] heapBuf;
 
-    public void init(AbstractReadIOBenchmark bench) throws IOException {
+    public void init(AbstractReadIOBenchmark bench, int readSize) throws IOException {
       mmapInput = bench.mmapInput.clone();
       mmapSequentialInput = bench.mmapSequentialInput.clone();
       mmapRandomInput = bench.mmapRandomInput.clone();
       niofsInput = bench.niofsInput.clone();
       ffiArena = Arena.ofConfined();
-      ffiBuf = ffiArena.allocate(MAX_READ_SIZE);
-      ffiDirectIOBuf = ffiArena.allocate(MAX_READ_SIZE, PAGE_SIZE);
-      heapBuf = new byte[MAX_READ_SIZE];
+      ffiBuf = ffiArena.allocate(readSize);
+      ffiDirectIOBuf = ffiArena.allocate(readSize, PAGE_SIZE);
+      heapBuf = new byte[readSize];
     }
 
     public void cleanup() throws IOException {
