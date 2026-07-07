@@ -57,12 +57,10 @@ public class SequentialReadIOBenchmark extends AbstractReadIOBenchmark {
   @Param({"128"})
   public int readsPerOp;
 
-  /** Current sequential scan position — advances across JMH invocations, wraps at EOF. */
   private long seqPosition = 0;
 
   private long maxOffset;
 
-  /** Per-thread state — extends shared base from AbstractReadIOBenchmark. */
   @State(Scope.Thread)
   public static class ThreadState extends BaseThreadState {
     @Setup(Level.Trial)
