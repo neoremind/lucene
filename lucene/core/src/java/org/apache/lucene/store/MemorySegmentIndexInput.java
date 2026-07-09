@@ -30,7 +30,6 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import org.apache.lucene.util.ArrayUtil;
-import org.apache.lucene.util.BitUtil;
 import org.apache.lucene.util.Constants;
 import org.apache.lucene.util.IOFunction;
 
