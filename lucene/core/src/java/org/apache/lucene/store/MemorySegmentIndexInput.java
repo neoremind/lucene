@@ -339,8 +339,6 @@ abstract class MemorySegmentIndexInput extends IndexInput implements MemorySegme
         offset,
         length,
         segment -> {
-          // We have a cache miss on at least one page, let's reset the counter.
-          sharedPrefetchCounter.set(0);
           nativeAccess.madviseWillNeed(segment);
           return true;
         });
