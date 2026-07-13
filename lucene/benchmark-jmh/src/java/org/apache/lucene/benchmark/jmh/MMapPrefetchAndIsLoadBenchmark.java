@@ -216,20 +216,8 @@ public class MMapPrefetchAndIsLoadBenchmark {
 
   @Benchmark
   @Threads(1)
-  public void mmapPrefetch_T01(Blackhole bh) throws IOException {
-    doPrefetch(mmapSegmentNormal, bh);
-  }
-
-  @Benchmark
-  @Threads(1)
   public void mmapRandomPrefetch_T01(Blackhole bh) throws IOException {
     doPrefetch(mmapSegmentRandom, bh);
-  }
-
-  @Benchmark
-  @Threads(1)
-  public void mmapIsLoad_T01(Blackhole bh) throws IOException {
-    isLoad(mmapSegmentNormal, bh);
   }
 
   @Benchmark
@@ -240,20 +228,8 @@ public class MMapPrefetchAndIsLoadBenchmark {
 
   @Benchmark
   @Threads(8)
-  public void mmapPrefetch_T08(Blackhole bh) throws IOException {
-    doPrefetch(mmapSegmentNormal, bh);
-  }
-
-  @Benchmark
-  @Threads(8)
   public void mmapRandomPrefetch_T08(Blackhole bh) throws IOException {
     doPrefetch(mmapSegmentRandom, bh);
-  }
-
-  @Benchmark
-  @Threads(8)
-  public void mmapIsLoad_T08(Blackhole bh) throws IOException {
-    isLoad(mmapSegmentNormal, bh);
   }
 
   @Benchmark
