@@ -81,6 +81,7 @@ abstract class TermsHashPerField implements Comparable<TermsHashPerField> {
     this.indexOptions = indexOptions;
     PostingsBytesStartArray byteStarts = new PostingsBytesStartArray(this, bytesUsed);
     bytesHash = new BytesRefHash(termBytePool, HASH_INIT_SIZE, byteStarts);
+    bytesHash.setMetricsInstanceName(fieldName);
   }
 
   void reset() {

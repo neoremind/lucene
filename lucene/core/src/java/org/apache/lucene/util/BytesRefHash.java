@@ -16,8 +16,20 @@
  */
 package org.apache.lucene.util;
 
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.Comparator;
+import java.util.Map;
+import java.util.PriorityQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import org.apache.lucene.util.ByteBlockPool.DirectAllocator;
 
 /**
@@ -104,6 +116,224 @@ public final class BytesRefHash implements Accountable {
 
   private final BytesStartArray bytesStartArray;
   private final Counter bytesUsed;
+
+  // --- Term add and find metrics instrumentation ---
+  // Enabled via system property: -Dlucene.bytesRefHash.metrics=true
+  private static final boolean METRICS_ENABLED = Boolean.getBoolean("lucene.bytesRefHash.metrics");
+
+  private static final String METRICS_FILE =
+      System.getProperty("lucene.bytesRefHash.metricsFile", "/tmp/bytesrefhash_metrics.csv");
+
+  private static final String TERM_LENGTH_FILE =
+      System.getProperty(
+          "lucene.bytesRefHash.lengthFile", METRICS_FILE.replace(".csv", "_term_length.csv"));
+
+  private static final String TOP_TERMS_FILE =
+      System.getProperty(
+          "lucene.bytesRefHash.topTermsFile", METRICS_FILE.replace(".csv", "_top_terms.csv"));
+
+  private static final String SEGMENTS_FILE =
+      System.getProperty(
+          "lucene.bytesRefHash.segmentsFile", METRICS_FILE.replace(".csv", "_segments.csv"));
+
+  // Bucket size for grouping sequential term additions in the output.
+  // Each bucket covers this many add() calls.
+  private static final int METRICS_BUCKET_SIZE =
+      Integer.getInteger("lucene.bytesRefHash.metricsBucketSize", 1000);
+
+  // Global writer shared across all BytesRefHash instances to produce a single clean CSV.
+  private static final Object METRICS_LOCK = new Object();
+  private static BufferedWriter globalMetricsWriter;
+  private static long globalBucketIndex;
+
+  // Segment-level writer: one row per segment flush.
+  private static BufferedWriter segmentMetricsWriter;
+  private static long segmentCounter;
+
+  // Term length histogram: seenByLength[len] = number of seen-term occurrences with that UTF-8
+  // byte length. Index MAX_TERM_LENGTH is the overflow bucket for length >= MAX_TERM_LENGTH so
+  // the histogram is complete. Written to a separate file at JVM shutdown.
+  private static final int MAX_TERM_LENGTH = 256;
+  private static final long[] seenByLength = new long[MAX_TERM_LENGTH + 1];
+  private static final long[] newByLength = new long[MAX_TERM_LENGTH + 1];
+
+  // Top-terms tracking. Terms are keyed by their exact bytes and mapped to their total
+  // occurrence count (new + seen). Bounded by MAX_TRACKED_TERMS to avoid unbounded memory
+  // growth; drops are counted.
+  private static final int SHORT_TERM_LEN =
+      Integer.getInteger("lucene.bytesRefHash.shortTermLen", 3);
+  private static final int TOP_TERMS_COUNT =
+      Integer.getInteger("lucene.bytesRefHash.topTermsCount", 1000);
+  private static final int MAX_TRACKED_TERMS =
+      Integer.getInteger("lucene.bytesRefHash.maxTrackedTerms", 20_000_000);
+  private static final ConcurrentHashMap<String, LongAdder> termCounts = new ConcurrentHashMap<>();
+  private static final LongAdder droppedTermTracks = new LongAdder();
+
+  static {
+    if (METRICS_ENABLED) {
+      try {
+        Path path = Paths.get(METRICS_FILE);
+        globalMetricsWriter =
+            Files.newBufferedWriter(
+                path,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE);
+        globalMetricsWriter.write("bucket_index,bucket_start,bucket_end,new_terms,seen_terms\n");
+        globalMetricsWriter.flush();
+
+        segmentMetricsWriter =
+            Files.newBufferedWriter(
+                Paths.get(SEGMENTS_FILE),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE);
+        segmentMetricsWriter.write(
+            "flush_index,instance,unique_terms,total_adds,new_count,seen_count\n");
+        segmentMetricsWriter.flush();
+      } catch (IOException e) {
+        throw new RuntimeException("Failed to open BytesRefHash metrics file: " + METRICS_FILE, e);
+      }
+      Runtime.getRuntime()
+          .addShutdownHook(
+              new Thread(
+                  () -> {
+                    synchronized (METRICS_LOCK) {
+                      if (globalMetricsWriter != null) {
+                        try {
+                          globalMetricsWriter.flush();
+                          globalMetricsWriter.close();
+                        } catch (IOException _) {
+                        }
+                        globalMetricsWriter = null;
+                      }
+                      if (segmentMetricsWriter != null) {
+                        try {
+                          segmentMetricsWriter.flush();
+                          segmentMetricsWriter.close();
+                        } catch (IOException _) {
+                        }
+                        segmentMetricsWriter = null;
+                      }
+                    }
+                    // Write term length histogram
+                    writeTermLengthHistogram();
+                    // Write top-terms report
+                    writeTopTerms();
+                  },
+                  "BytesRefHash-metrics-shutdown"));
+    }
+  }
+
+  private static void writeTermLengthHistogram() {
+    try (BufferedWriter w =
+        Files.newBufferedWriter(
+            Paths.get(TERM_LENGTH_FILE),
+            StandardOpenOption.CREATE,
+            StandardOpenOption.TRUNCATE_EXISTING,
+            StandardOpenOption.WRITE)) {
+      w.write("term_utf8_length,seen_occurrences,new_occurrences\n");
+      for (int i = 0; i < MAX_TERM_LENGTH; i++) {
+        if (seenByLength[i] > 0 || newByLength[i] > 0) {
+          w.write(Integer.toString(i));
+          w.write(',');
+          w.write(Long.toString(seenByLength[i]));
+          w.write(',');
+          w.write(Long.toString(newByLength[i]));
+          w.write('\n');
+        }
+      }
+      // Overflow bucket: term length >= MAX_TERM_LENGTH, so the histogram is complete.
+      w.write(">=" + MAX_TERM_LENGTH);
+      w.write(',');
+      w.write(Long.toString(seenByLength[MAX_TERM_LENGTH]));
+      w.write(',');
+      w.write(Long.toString(newByLength[MAX_TERM_LENGTH]));
+      w.write('\n');
+    } catch (IOException e) {
+      throw new RuntimeException("Failed to write term length histogram", e);
+    }
+  }
+
+  private static void writeTopTerms() {
+    Comparator<Map.Entry<String, Long>> byCount = Comparator.comparingLong(Map.Entry::getValue);
+    PriorityQueue<Map.Entry<String, Long>> topAll = new PriorityQueue<>(byCount);
+    PriorityQueue<Map.Entry<String, Long>> topShort = new PriorityQueue<>(byCount);
+    for (Map.Entry<String, LongAdder> e : termCounts.entrySet()) {
+      Map.Entry<String, Long> entry = Map.entry(e.getKey(), e.getValue().sum());
+      offerCapped(topAll, entry, TOP_TERMS_COUNT);
+      if (e.getKey().length() <= SHORT_TERM_LEN) {
+        offerCapped(topShort, entry, TOP_TERMS_COUNT);
+      }
+    }
+    try (BufferedWriter w =
+        Files.newBufferedWriter(
+            Paths.get(TOP_TERMS_FILE),
+            StandardOpenOption.CREATE,
+            StandardOpenOption.TRUNCATE_EXISTING,
+            StandardOpenOption.WRITE)) {
+      w.write("category,rank,term,term_utf8_length,occurrences\n");
+      writeTopSection(w, "short", topShort);
+      writeTopSection(w, "all", topAll);
+      if (droppedTermTracks.sum() > 0) {
+        w.write("# WARNING: " + droppedTermTracks.sum() + " term occurrences were not tracked");
+        w.write(" (exceeded maxTrackedTerms=" + MAX_TRACKED_TERMS + ")\n");
+      }
+    } catch (IOException e) {
+      throw new RuntimeException("Failed to write top terms report", e);
+    }
+  }
+
+  private static void offerCapped(
+      PriorityQueue<Map.Entry<String, Long>> heap, Map.Entry<String, Long> entry, int cap) {
+    if (heap.size() < cap) {
+      heap.offer(entry);
+    } else if (heap.peek().getValue() < entry.getValue()) {
+      heap.poll();
+      heap.offer(entry);
+    }
+  }
+
+  private static void writeTopSection(
+      BufferedWriter w, String category, PriorityQueue<Map.Entry<String, Long>> heap)
+      throws IOException {
+    // Drain min-heap, then emit in descending order of occurrences.
+    java.util.List<Map.Entry<String, Long>> entries = new java.util.ArrayList<>(heap);
+    entries.sort(Comparator.comparingLong(Map.Entry<String, Long>::getValue).reversed());
+    int rank = 1;
+    for (Map.Entry<String, Long> e : entries) {
+      byte[] rawBytes = e.getKey().getBytes(StandardCharsets.ISO_8859_1);
+      String term = new String(rawBytes, StandardCharsets.UTF_8);
+      String escaped = term.replace("\"", "\"\"");
+      w.write(category);
+      w.write(',');
+      w.write(Integer.toString(rank++));
+      w.write(",\"");
+      w.write(escaped);
+      w.write("\",");
+      w.write(Integer.toString(rawBytes.length));
+      w.write(',');
+      w.write(Long.toString(e.getValue()));
+      w.write('\n');
+    }
+  }
+
+  // Per-instance counters
+  private long totalAddCalls;
+  private long bucketNewTerms;
+  private long bucketSeenTerms;
+
+  // Per-segment counters (reset on clear/flush)
+  private long segmentNewTerms;
+  private long segmentSeenTerms;
+  private String metricsInstanceName; // optional label for identifying this instance in CSV
+
+  /** Sets a label for this instance in metrics output (e.g., field name). */
+  public void setMetricsInstanceName(String name) {
+    this.metricsInstanceName = name;
+  }
+
+  // --- End metrics instrumentation ---
 
   /**
    * Creates a new {@link BytesRefHash} with a {@link ByteBlockPool} using a {@link
@@ -196,6 +426,12 @@ public final class BytesRefHash implements Accountable {
    * this {@link BytesRefHash} instance.
    */
   public int[] sort() {
+    if (METRICS_ENABLED) {
+      if (bucketNewTerms > 0 || bucketSeenTerms > 0) {
+        writeBucket();
+      }
+      flushSegmentSummary();
+    }
     final int[] compact = compact();
     assert count * 2 <= compact.length : "We need load factor <= 0.5f to speed up this sort";
     final int tmpOffset = count;
@@ -293,6 +529,7 @@ public final class BytesRefHash implements Accountable {
 
   /** Clears the {@link BytesRef} which maps to the given {@link BytesRef} */
   public void clear(boolean resetPool) {
+    flushPartialBucket();
     lastCount = count;
     count = 0;
     if (resetPool) {
@@ -312,6 +549,7 @@ public final class BytesRefHash implements Accountable {
 
   /** Closes the BytesRefHash and releases all internally used memory */
   public void close() {
+    flushMetrics();
     clear(true);
     ids = null;
     bytesUsed.addAndGet(Integer.BYTES * (long) -hashSize);
@@ -345,14 +583,143 @@ public final class BytesRefHash implements Accountable {
       assert ids[hashPos] == -1;
       ids[hashPos] = e | (hashcode & highMask);
 
+      if (METRICS_ENABLED) {
+        metricsRecordNew(bytes);
+      }
+
       if (count == hashHalfSize) {
         rehash(2 * hashSize, true);
       }
       return e;
     }
     e = e & hashMask;
+
+    if (METRICS_ENABLED) {
+      metricsRecordSeen(bytes);
+    }
+
     return -(e + 1);
   }
+
+  // --- Metrics helper methods ---
+
+  private void metricsRecordNew(BytesRef bytes) {
+    totalAddCalls++;
+    bucketNewTerms++;
+    segmentNewTerms++;
+    newByLength[Math.min(bytes.length, MAX_TERM_LENGTH)]++;
+    trackTermOccurrence(bytes);
+    if (totalAddCalls % METRICS_BUCKET_SIZE == 0) {
+      writeBucket();
+    }
+  }
+
+  private void metricsRecordSeen(BytesRef bytes) {
+    totalAddCalls++;
+    bucketSeenTerms++;
+    segmentSeenTerms++;
+    seenByLength[Math.min(bytes.length, MAX_TERM_LENGTH)]++;
+    trackTermOccurrence(bytes);
+    if (totalAddCalls % METRICS_BUCKET_SIZE == 0) {
+      writeBucket();
+    }
+  }
+
+  private static void trackTermOccurrence(BytesRef bytes) {
+    // ISO-8859-1 maps each byte to one char, preserving exact term bytes as the map key.
+    String key = new String(bytes.bytes, bytes.offset, bytes.length, StandardCharsets.ISO_8859_1);
+    LongAdder adder = termCounts.get(key);
+    if (adder == null) {
+      if (termCounts.size() >= MAX_TRACKED_TERMS) {
+        droppedTermTracks.increment();
+        return;
+      }
+      adder = termCounts.computeIfAbsent(key, _ -> new LongAdder());
+    }
+    adder.increment();
+  }
+
+  private void writeBucket() {
+    synchronized (METRICS_LOCK) {
+      if (globalMetricsWriter == null) return;
+      try {
+        long bucketStart = globalBucketIndex * METRICS_BUCKET_SIZE;
+        long bucketEnd = bucketStart + METRICS_BUCKET_SIZE;
+        globalMetricsWriter.write(Long.toString(globalBucketIndex));
+        globalMetricsWriter.write(',');
+        globalMetricsWriter.write(Long.toString(bucketStart));
+        globalMetricsWriter.write(',');
+        globalMetricsWriter.write(Long.toString(bucketEnd));
+        globalMetricsWriter.write(',');
+        globalMetricsWriter.write(Long.toString(bucketNewTerms));
+        globalMetricsWriter.write(',');
+        globalMetricsWriter.write(Long.toString(bucketSeenTerms));
+        globalMetricsWriter.write('\n');
+        globalBucketIndex++;
+      } catch (IOException e) {
+        throw new RuntimeException("Failed to write BytesRefHash metrics", e);
+      }
+    }
+    bucketNewTerms = 0;
+    bucketSeenTerms = 0;
+  }
+
+  /**
+   * Flushes any remaining partial bucket to the global metrics file. Called on clear() before
+   * BytesRefHash is reused for the next segment.
+   */
+  private void flushPartialBucket() {
+    if (!METRICS_ENABLED) return;
+    if (bucketNewTerms > 0 || bucketSeenTerms > 0) {
+      writeBucket();
+    }
+    flushSegmentSummary();
+  }
+
+  /** Flushes any remaining metrics. */
+  public void flushMetrics() {
+    if (!METRICS_ENABLED) return;
+    if (bucketNewTerms > 0 || bucketSeenTerms > 0) {
+      writeBucket();
+    }
+    flushSegmentSummary();
+  }
+
+  /**
+   * Writes one row to the segments CSV summarizing this segment's activity, then resets
+   * per-segment counters. 'count' is the number of unique terms currently in the hash (i.e.,
+   * unique terms for this segment). segmentNewTerms + segmentSeenTerms = total add() calls.
+   */
+  private void flushSegmentSummary() {
+    long totalAdds = segmentNewTerms + segmentSeenTerms;
+    if (totalAdds == 0) return; // nothing happened in this segment
+    synchronized (METRICS_LOCK) {
+      if (segmentMetricsWriter == null) return;
+      try {
+        segmentMetricsWriter.write(Long.toString(segmentCounter));
+        segmentMetricsWriter.write(',');
+        String name = metricsInstanceName != null ? metricsInstanceName : "unknown";
+        segmentMetricsWriter.write(name);
+        segmentMetricsWriter.write(',');
+        segmentMetricsWriter.write(Integer.toString(count)); // unique terms = count at flush time
+        segmentMetricsWriter.write(',');
+        segmentMetricsWriter.write(Long.toString(totalAdds));
+        segmentMetricsWriter.write(',');
+        segmentMetricsWriter.write(Long.toString(segmentNewTerms));
+        segmentMetricsWriter.write(',');
+        segmentMetricsWriter.write(Long.toString(segmentSeenTerms));
+        segmentMetricsWriter.write('\n');
+        segmentMetricsWriter.flush();
+        segmentCounter++;
+      } catch (IOException e) {
+        throw new RuntimeException("Failed to write segment metrics", e);
+      }
+    }
+    segmentNewTerms = 0;
+    segmentSeenTerms = 0;
+  }
+
+  // --- End metrics helper methods ---
 
   /**
    * Returns the id of the given {@link BytesRef}.
