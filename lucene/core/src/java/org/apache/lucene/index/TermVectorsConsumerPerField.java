@@ -23,6 +23,7 @@ import org.apache.lucene.analysis.tokenattributes.TermFrequencyAttribute;
 import org.apache.lucene.codecs.TermVectorsWriter;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBlockPool;
+import org.apache.lucene.util.BytesRefHash;
 
 final class TermVectorsConsumerPerField extends TermsHashPerField {
 
@@ -41,6 +42,9 @@ final class TermVectorsConsumerPerField extends TermsHashPerField {
   private PayloadAttribute payloadAttribute;
   private TermFrequencyAttribute termFreqAtt;
   private final BytesRefBlockPool termBytePool;
+  // scratch bytes for decoding terms that BytesRefHash encoded inline into textStarts; reusing it
+  // is safe because the term vectors writer copies the term bytes in startTerm
+  private final byte[] inlineScratch = new byte[BytesRefHash.MAX_INLINE_LENGTH];
 
   private boolean hasPayloads; // if enabled, and we actually saw any for this field
 
@@ -106,7 +110,12 @@ final class TermVectorsConsumerPerField extends TermsHashPerField {
       final int freq = postings.freqs[termID];
 
       // Get BytesRef
-      termBytePool.fillBytesRef(flushTerm, postings.textStarts[termID]);
+      final int textStart = postings.textStarts[termID];
+      if (BytesRefHash.isInline(textStart)) {
+        BytesRefHash.decodeInline(textStart, flushTerm, inlineScratch);
+      } else {
+        termBytePool.fillBytesRef(flushTerm, textStart);
+      }
       tv.startTerm(flushTerm, freq);
 
       if (doVectorPositions || doVectorOffsets) {

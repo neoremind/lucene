@@ -704,4 +704,56 @@ public class TestTermVectorsWriter extends LuceneTestCase {
     r.close();
     dir.close();
   }
+
+  // Terms of at most 3 bytes are encoded inline into BytesRefHash's bytesStart entries; verify
+  // they survive the full term vectors round trip (postings hash -> textStarts -> term vectors
+  // hash via addByPoolOffset -> codec) mixed with longer, pool-backed terms.
+  public void testShortInlineTerms() throws IOException {
+    Directory dir = newDirectory();
+    IndexWriter w =
+        new IndexWriter(
+            dir, newIndexWriterConfig(new MockAnalyzer(random(), MockTokenizer.WHITESPACE, false)));
+    FieldType ft = new FieldType(TextField.TYPE_NOT_STORED);
+    ft.setStoreTermVectors(true);
+    ft.setStoreTermVectorPositions(true);
+    ft.setStoreTermVectorOffsets(true);
+    int numDocs = atLeast(50);
+    for (int i = 0; i < numDocs; i++) {
+      Document doc = new Document();
+      // repeated short terms (a, bb, ccc), one boundary-length term (dddd), and a long term
+      doc.add(new Field("field", "a bb ccc a bb dddd longerterm" + i + " a", ft));
+      w.addDocument(doc);
+    }
+    w.forceMerge(1);
+    try (IndexReader r = DirectoryReader.open(w)) {
+      for (int i = 0; i < numDocs; i++) {
+        Terms vector = r.termVectors().get(i, "field");
+        assertNotNull(vector);
+        assertEquals(5, vector.size());
+        TermsEnum termsEnum = vector.iterator();
+        assertEquals(new BytesRef("a"), termsEnum.next());
+        assertEquals(3, termsEnum.totalTermFreq());
+        assertEquals(new BytesRef("bb"), termsEnum.next());
+        assertEquals(2, termsEnum.totalTermFreq());
+        assertEquals(new BytesRef("ccc"), termsEnum.next());
+        assertEquals(1, termsEnum.totalTermFreq());
+        assertEquals(new BytesRef("dddd"), termsEnum.next());
+        assertEquals(new BytesRef("longerterm" + i), termsEnum.next());
+        assertNull(termsEnum.next());
+      }
+      // and the inverted index agrees
+      LeafReader leaf = getOnlyLeafReader(r);
+      // per doc: a x3, bb x2, ccc x1, dddd x1, longerterm<i> x1 = 8 tokens
+      assertEquals(numDocs * 8L, leaf.terms("field").getSumTotalTermFreq());
+      PostingsEnum postings = leaf.postings(new Term("field", "a"));
+      assertNotNull(postings);
+      for (int i = 0; i < numDocs; i++) {
+        assertEquals(i, postings.nextDoc());
+        assertEquals(3, postings.freq());
+      }
+      assertEquals(DocIdSetIterator.NO_MORE_DOCS, postings.nextDoc());
+    }
+    w.close();
+    dir.close();
+  }
 }

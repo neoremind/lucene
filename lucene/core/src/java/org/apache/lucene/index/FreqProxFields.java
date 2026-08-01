@@ -26,6 +26,7 @@ import org.apache.lucene.util.AttributeSource;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBlockPool;
 import org.apache.lucene.util.BytesRefBuilder;
+import org.apache.lucene.util.BytesRefHash;
 
 /**
  * Implements limited (iterators only, no stats) {@link Fields} interface over the in-RAM buffered
@@ -124,6 +125,9 @@ class FreqProxFields extends Fields {
     final int[] sortedTermIDs;
     final FreqProxPostingsArray postingsArray;
     final BytesRef scratch = new BytesRef();
+    // scratch bytes for decoding terms that BytesRefHash encoded inline into textStarts; reusing
+    // it is safe since scratch is invalidated by the next call anyway, per the TermsEnum contract
+    final byte[] inlineScratch = new byte[BytesRefHash.MAX_INLINE_LENGTH];
     final int numTerms;
     int ord;
 
@@ -140,6 +144,15 @@ class FreqProxFields extends Fields {
       ord = -1;
     }
 
+    private void fillScratchTerm(int ord) {
+      final int textStart = postingsArray.textStarts[sortedTermIDs[ord]];
+      if (BytesRefHash.isInline(textStart)) {
+        BytesRefHash.decodeInline(textStart, scratch, inlineScratch);
+      } else {
+        termsPool.fillBytesRef(scratch, textStart);
+      }
+    }
+
     @Override
     public SeekStatus seekCeil(BytesRef text) {
       // TODO: we could instead keep the BytesRefHash
@@ -150,8 +163,7 @@ class FreqProxFields extends Fields {
       int hi = numTerms - 1;
       while (hi >= lo) {
         int mid = (lo + hi) >>> 1;
-        int textStart = postingsArray.textStarts[sortedTermIDs[mid]];
-        termsPool.fillBytesRef(scratch, textStart);
+        fillScratchTerm(mid);
         int cmp = scratch.compareTo(text);
         if (cmp < 0) {
           lo = mid + 1;
@@ -170,8 +182,7 @@ class FreqProxFields extends Fields {
       if (ord >= numTerms) {
         return SeekStatus.END;
       } else {
-        int textStart = postingsArray.textStarts[sortedTermIDs[ord]];
-        termsPool.fillBytesRef(scratch, textStart);
+        fillScratchTerm(ord);
         assert term().compareTo(text) > 0;
         return SeekStatus.NOT_FOUND;
       }
@@ -180,8 +191,7 @@ class FreqProxFields extends Fields {
     @Override
     public void seekExact(long ord) {
       this.ord = (int) ord;
-      int textStart = postingsArray.textStarts[sortedTermIDs[this.ord]];
-      termsPool.fillBytesRef(scratch, textStart);
+      fillScratchTerm(this.ord);
     }
 
     @Override
@@ -190,8 +200,7 @@ class FreqProxFields extends Fields {
       if (ord >= numTerms) {
         return null;
       } else {
-        int textStart = postingsArray.textStarts[sortedTermIDs[ord]];
-        termsPool.fillBytesRef(scratch, textStart);
+        fillScratchTerm(ord);
         return scratch;
       }
     }

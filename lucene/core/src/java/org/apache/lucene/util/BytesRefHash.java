@@ -106,6 +106,75 @@ public final class BytesRefHash implements Accountable {
   private final Counter bytesUsed;
 
   /**
+   * Maximum length in bytes of a term that is encoded inline into its {@code bytesStart} entry
+   * rather than being written to the {@link ByteBlockPool}.
+   *
+   * <p>Inline entries are identified by their sign bit: valid pool offsets are always &gt;= 0,
+   * while inline entries are always negative. The layout of an inline entry is: the top byte holds
+   * {@code 0x80 | length}, and the term bytes are packed in little-endian order, i.e. the first
+   * term byte occupies the lowest 8 bits. The little-endian placement is deliberate: {@link
+   * #addByPoolOffset(int)} and rehashing with {@code hashOnData=false} use the raw entry value as
+   * the hash code, so the most-varying byte of the term must land in the low bits to avoid
+   * clustering.
+   *
+   * @lucene.internal
+   */
+  public static final int MAX_INLINE_LENGTH = 3;
+
+  private static final int INLINE_FLAG = 0x80;
+
+  /**
+   * Returns true if the given {@code bytesStart} entry holds an inline-encoded term rather than an
+   * offset into the {@link ByteBlockPool}.
+   *
+   * @lucene.internal
+   */
+  public static boolean isInline(int bytesStartValue) {
+    return bytesStartValue < 0;
+  }
+
+  /**
+   * Encodes a term of at most {@link #MAX_INLINE_LENGTH} bytes into an inline {@code bytesStart}
+   * entry. The encoding is canonical: two terms are equal if and only if their encoded values are
+   * equal. The returned value always has its sign bit set, so it is never 0 and never collides with
+   * a pool offset.
+   *
+   * @lucene.internal
+   */
+  public static int encodeInline(BytesRef bytes) {
+    assert bytes.length <= MAX_INLINE_LENGTH;
+    int encoded = (INLINE_FLAG | bytes.length) << 24;
+    for (int i = 0; i < bytes.length; i++) {
+      encoded |= (bytes.bytes[bytes.offset + i] & 0xFF) << (i << 3);
+    }
+    return encoded;
+  }
+
+  /** Returns the term length encoded in the given inline entry. */
+  static int inlineLength(int encoded) {
+    assert isInline(encoded);
+    return (encoded >>> 24) & ~INLINE_FLAG;
+  }
+
+  /**
+   * Decodes an inline entry into the given {@link BytesRef}, writing the term bytes into {@code
+   * scratch} (which must be at least {@link #MAX_INLINE_LENGTH} bytes, or the exact term length)
+   * and pointing {@code ref} at it.
+   *
+   * @lucene.internal
+   */
+  public static void decodeInline(int encoded, BytesRef ref, byte[] scratch) {
+    final int len = inlineLength(encoded);
+    assert scratch.length >= len;
+    for (int i = 0; i < len; i++) {
+      scratch[i] = (byte) (encoded >>> (i << 3));
+    }
+    ref.bytes = scratch;
+    ref.offset = 0;
+    ref.length = len;
+  }
+
+  /**
    * Creates a new {@link BytesRefHash} with a {@link ByteBlockPool} using a {@link
    * DirectAllocator}.
    */
@@ -156,6 +225,10 @@ public final class BytesRefHash implements Accountable {
    * <p>Note: the given bytesID must be a positive integer less than the current size ({@link
    * #size()})
    *
+   * <p>Note: for terms of at most {@link #MAX_INLINE_LENGTH} bytes the returned ref points at a
+   * freshly allocated array rather than into the internal pool. A fresh array (instead of a shared
+   * scratch) is required to keep previously returned refs valid, which callers rely on.
+   *
    * @param bytesID the id
    * @param ref the {@link BytesRef} to populate
    * @return the given BytesRef instance populated with the bytes for the given bytesID
@@ -163,7 +236,12 @@ public final class BytesRefHash implements Accountable {
   public BytesRef get(int bytesID, BytesRef ref) {
     assert bytesStart != null : "bytesStart is null - not initialized";
     assert bytesID < bytesStart.length : "bytesID exceeds byteStart len: " + bytesStart.length;
-    pool.fillBytesRef(ref, bytesStart[bytesID]);
+    final int bytesStartValue = bytesStart[bytesID];
+    if (isInline(bytesStartValue)) {
+      decodeInline(bytesStartValue, ref, new byte[inlineLength(bytesStartValue)]);
+    } else {
+      pool.fillBytesRef(ref, bytesStartValue);
+    }
     return ref;
   }
 
@@ -263,7 +341,15 @@ public final class BytesRefHash implements Accountable {
 
       @Override
       protected void get(BytesRefBuilder builder, BytesRef result, int i) {
-        pool.fillBytesRef(result, bytesStart[compact[i]]);
+        final int bytesStartValue = bytesStart[compact[i]];
+        if (isInline(bytesStartValue)) {
+          // Decode into the builder's owned bytes: this method is called for every byte
+          // inspection of the radix sorter, so it must not allocate.
+          builder.growNoCopy(MAX_INLINE_LENGTH);
+          decodeInline(bytesStartValue, result, builder.bytes());
+        } else {
+          pool.fillBytesRef(result, bytesStartValue);
+        }
       }
     }.sort(0, count);
     Arrays.fill(compact, tmpOffset, compact.length, -1);
@@ -330,8 +416,12 @@ public final class BytesRefHash implements Accountable {
   public int add(BytesRef bytes) {
     assert bytesStart != null : "bytesStart is null - not initialized";
     final int hashcode = doHash(bytes.bytes, bytes.offset, bytes.length);
+    // Pre-encode short terms once: the encoding is canonical, so probe comparisons reduce to a
+    // single int comparison and never have to touch the pool. 0 means "not inlinable" and can
+    // never clash with an encoded value, which always has its sign bit set.
+    final int inlined = bytes.length <= MAX_INLINE_LENGTH ? encodeInline(bytes) : 0;
     // final position
-    final int hashPos = findHash(bytes, hashcode);
+    final int hashPos = findHash(bytes, hashcode, inlined);
     int e = ids[hashPos];
 
     if (e == -1) {
@@ -340,7 +430,7 @@ public final class BytesRefHash implements Accountable {
         bytesStart = bytesStartArray.grow();
         assert count < bytesStart.length + 1 : "count: " + count + " len: " + bytesStart.length;
       }
-      bytesStart[count] = pool.addBytesRef(bytes);
+      bytesStart[count] = inlined != 0 ? inlined : pool.addBytesRef(bytes);
       e = count++;
       assert ids[hashPos] == -1;
       ids[hashPos] = e | (hashcode & highMask);
@@ -362,11 +452,12 @@ public final class BytesRefHash implements Accountable {
    */
   public int find(BytesRef bytes) {
     final int hashcode = doHash(bytes.bytes, bytes.offset, bytes.length);
-    final int id = ids[findHash(bytes, hashcode)];
+    final int inlined = bytes.length <= MAX_INLINE_LENGTH ? encodeInline(bytes) : 0;
+    final int id = ids[findHash(bytes, hashcode, inlined)];
     return id == -1 ? -1 : id & hashMask;
   }
 
-  private int findHash(BytesRef bytes, int hashcode) {
+  private int findHash(BytesRef bytes, int hashcode, int inlined) {
     assert bytesStart != null : "bytesStart is null - not initialized";
     assert hashcode == doHash(bytes.bytes, bytes.offset, bytes.length);
 
@@ -379,7 +470,8 @@ public final class BytesRefHash implements Accountable {
     // Conflict; use linear probe to find an open slot
     // (see LUCENE-5604):
     while (e != -1
-        && ((e & highMask) != highBits || pool.equals(bytesStart[e & hashMask], bytes) == false)) {
+        && ((e & highMask) != highBits
+            || termEquals(bytesStart[e & hashMask], bytes, inlined) == false)) {
       code++;
       hashPos = code & hashMask;
       e = ids[hashPos];
@@ -389,10 +481,30 @@ public final class BytesRefHash implements Accountable {
   }
 
   /**
+   * Compares the term stored at the given {@code bytesStart} entry against the query term. {@code
+   * inlined} must be {@link #encodeInline(BytesRef)} of {@code bytes} if the query term fits
+   * inline, else 0.
+   */
+  private boolean termEquals(int bytesStartValue, BytesRef bytes, int inlined) {
+    if (inlined != 0) {
+      // Short query term: every stored term of length <= MAX_INLINE_LENGTH is inlined (see add)
+      // and the encoding is canonical, so a single int comparison is an exact equality check. It
+      // also rejects pool entries, which are >= 0 while inlined is negative.
+      return bytesStartValue == inlined;
+    }
+    // Query term longer than MAX_INLINE_LENGTH: inline entries can never match.
+    return bytesStartValue >= 0 && pool.equals(bytesStartValue, bytes);
+  }
+
+  /**
    * Adds a "arbitrary" int offset instead of a BytesRef term. This is used in the indexer to hold
    * the hash for term vectors, because they do not redundantly store the byte[] term directly and
    * instead reference the byte[] term already stored by the postings BytesRefHash. See add(int
    * textStart) in TermsHashPerField.
+   *
+   * <p>Note: the given offset may also be a negative inline-encoded term (see {@link
+   * #isInline(int)}) taken from another hash's {@code bytesStart} entry. Since the inline encoding
+   * is canonical, the int equality used here remains an exact term equality check.
    */
   public int addByPoolOffset(int offset) {
     assert bytesStart != null : "bytesStart is null - not initialized";
@@ -438,12 +550,24 @@ public final class BytesRefHash implements Accountable {
     ids = new int[newSize];
     Arrays.fill(ids, -1);
 
+    // scratch for hashing inline-encoded terms without allocating per entry
+    final byte[] scratch = hashOnData ? new byte[MAX_INLINE_LENGTH] : null;
+
     // rebuild ids from terms in pool pointed by bytesStart
     for (int id = 0; id < count; id++) {
       final int hashcode;
       int code;
       if (hashOnData) {
-        hashcode = code = pool.hash(bytesStart[id]);
+        final int bytesStartValue = bytesStart[id];
+        if (isInline(bytesStartValue)) {
+          final int len = inlineLength(bytesStartValue);
+          for (int i = 0; i < len; i++) {
+            scratch[i] = (byte) (bytesStartValue >>> (i << 3));
+          }
+          hashcode = code = doHash(scratch, 0, len);
+        } else {
+          hashcode = code = pool.hash(bytesStartValue);
+        }
       } else {
         code = bytesStart[id];
         hashcode = 0;
@@ -489,11 +613,14 @@ public final class BytesRefHash implements Accountable {
   }
 
   /**
-   * Returns the bytesStart offset into the internally used {@link ByteBlockPool} for the given
-   * bytesID
+   * Returns the {@code bytesStart} entry for the given bytesID. For terms longer than {@link
+   * #MAX_INLINE_LENGTH} bytes this is the term's offset into the internally used {@link
+   * ByteBlockPool}; for shorter terms it is a negative value holding the term encoded inline (see
+   * {@link #isInline(int)}). Either form may be passed to {@link #addByPoolOffset(int)} of a hash
+   * sharing the same pool.
    *
    * @param bytesID the id to look up
-   * @return the bytesStart offset into the internally used {@link ByteBlockPool} for the given id
+   * @return the bytesStart entry for the given id
    */
   public int byteStart(int bytesID) {
     assert bytesStart != null : "bytesStart is null - not initialized";

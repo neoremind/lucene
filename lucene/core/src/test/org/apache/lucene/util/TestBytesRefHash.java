@@ -415,4 +415,151 @@ public class TestBytesRefHash extends LuceneTestCase {
       assertTrue("key: " + key + " count: " + count + " string: " + string, key < count);
     }
   }
+
+  public void testInlineEncodingRoundTrip() {
+    // Exercise every length around the inline boundary, including bytes with the high bit set to
+    // catch sign-extension bugs in encode/decode.
+    byte[][] terms =
+        new byte[][] {
+          {},
+          {0x00},
+          {0x61},
+          {(byte) 0x80},
+          {(byte) 0xFF},
+          {0x61, 0x62},
+          {(byte) 0xFF, 0x00},
+          {0x00, (byte) 0x80},
+          {0x61, 0x62, 0x63},
+          {(byte) 0xFF, (byte) 0xFE, (byte) 0xFD},
+          {0x00, 0x00, 0x00},
+          {0x61, 0x62, 0x63, 0x64}, // first non-inline length
+          {(byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF},
+        };
+    int[] ids = new int[terms.length];
+    for (int i = 0; i < terms.length; i++) {
+      ids[i] = hash.add(new BytesRef(terms[i]));
+      assertTrue("term " + i + " should be new", ids[i] >= 0);
+    }
+    BytesRef scratch = new BytesRef();
+    for (int i = 0; i < terms.length; i++) {
+      assertEquals(
+          "get() must round-trip term " + i, new BytesRef(terms[i]), hash.get(ids[i], scratch));
+      assertEquals("find() must locate term " + i, ids[i], hash.find(new BytesRef(terms[i])));
+      int dup = hash.add(new BytesRef(terms[i]));
+      assertEquals("re-add must report duplicate for term " + i, -(ids[i] + 1), dup);
+    }
+    // similar but distinct short terms must not collide with each other
+    assertEquals(-1, hash.find(new BytesRef(new byte[] {0x62})));
+    assertEquals(-1, hash.find(new BytesRef(new byte[] {0x61, 0x62, 0x64})));
+    assertEquals(-1, hash.find(new BytesRef(new byte[] {0x62, 0x62, 0x63, 0x64})));
+  }
+
+  public void testInlineEncodingIsCanonical() {
+    // The optimization relies on encode being canonical (equal terms <-> equal ints) and always
+    // producing a negative value distinct from any pool offset.
+    byte[] term = new byte[BytesRefHash.MAX_INLINE_LENGTH];
+    for (int len = 0; len <= BytesRefHash.MAX_INLINE_LENGTH; len++) {
+      for (int iter = 0; iter < 1000; iter++) {
+        random().nextBytes(term);
+        BytesRef ref = new BytesRef(term, 0, len);
+        int encoded = BytesRefHash.encodeInline(ref);
+        assertTrue("inline encoding must be negative", BytesRefHash.isInline(encoded));
+        assertEquals(encoded, BytesRefHash.encodeInline(ref.clone()));
+        BytesRef decoded = new BytesRef();
+        BytesRefHash.decodeInline(encoded, decoded, new byte[BytesRefHash.MAX_INLINE_LENGTH]);
+        assertEquals(ref, decoded);
+      }
+    }
+    // length is part of the encoding: all-zero terms of different lengths must encode differently
+    Set<Integer> zeroTermEncodings = new HashSet<>();
+    for (int len = 0; len <= BytesRefHash.MAX_INLINE_LENGTH; len++) {
+      zeroTermEncodings.add(
+          BytesRefHash.encodeInline(
+              new BytesRef(new byte[BytesRefHash.MAX_INLINE_LENGTH], 0, len)));
+    }
+    assertEquals(BytesRefHash.MAX_INLINE_LENGTH + 1, zeroTermEncodings.size());
+  }
+
+  public void testSortShortTerms() {
+    // Bias heavily toward terms at or below the inline boundary so the sort has to interleave
+    // inline and pool entries correctly. Sort order is unicode code point order, matching UTF-8
+    // byte order.
+    SortedSet<String> expected = new TreeSet<>(TestUtil.STRING_CODEPOINT_COMPARATOR);
+    BytesRefBuilder ref = new BytesRefBuilder();
+    int numTerms = atLeast(1000);
+    for (int i = 0; i < numTerms; i++) {
+      String str;
+      do {
+        str = TestUtil.randomRealisticUnicodeString(random(), random().nextInt(6) == 0 ? 20 : 2);
+      } while (str.length() == 0);
+      ref.copyChars(str);
+      hash.add(ref.get());
+      expected.add(str);
+    }
+    int[] sort = hash.sort();
+    assertEquals(expected.size(), hash.size());
+    BytesRef scratch = new BytesRef();
+    int i = 0;
+    for (String string : expected) {
+      ref.copyChars(string);
+      assertEquals(ref.get(), hash.get(sort[i++], scratch));
+    }
+  }
+
+  public void testAddByPoolOffsetWithInlineTerms() {
+    // byteStart() of a short term returns a negative inline sentinel; addByPoolOffset must treat
+    // it as an exact key, mirroring how term vectors reuse textStarts from the postings hash.
+    BytesRefHash offsetHash = newHash(pool);
+    List<BytesRef> terms = new ArrayList<>();
+    BytesRefBuilder ref = new BytesRefBuilder();
+    int numTerms = atLeast(200);
+    for (int i = 0; i < numTerms; i++) {
+      String str;
+      do {
+        str = TestUtil.randomRealisticUnicodeString(random(), random().nextBoolean() ? 1 : 20);
+      } while (str.length() == 0);
+      ref.copyChars(str);
+      if (hash.add(ref.get()) >= 0) {
+        terms.add(ref.toBytesRef());
+      }
+    }
+    for (int id = 0; id < hash.size(); id++) {
+      int offsetKey = offsetHash.addByPoolOffset(hash.byteStart(id));
+      assertEquals("first add must create a new entry", id, offsetKey);
+    }
+    BytesRef scratch = new BytesRef();
+    for (int id = 0; id < hash.size(); id++) {
+      // re-adding the same offset must report the duplicate...
+      assertEquals(-(id + 1), offsetHash.addByPoolOffset(hash.byteStart(id)));
+      // ...and the offset hash must resolve to the identical term bytes
+      assertEquals(terms.get(id), offsetHash.get(id, scratch));
+    }
+  }
+
+  public void testInlineTermsSurviveRehash() {
+    // Grow far past several rehash boundaries with a mix of short and long terms and verify
+    // everything is still findable with correct bytes.
+    Map<String, Integer> reference = new HashMap<>();
+    BytesRefBuilder ref = new BytesRefBuilder();
+    int numTerms = atLeast(10000);
+    for (int i = 0; i < numTerms; i++) {
+      String str;
+      do {
+        str = TestUtil.randomRealisticUnicodeString(random(), random().nextBoolean() ? 3 : 15);
+      } while (str.length() == 0);
+      ref.copyChars(str);
+      int key = hash.add(ref.get());
+      if (key >= 0) {
+        assertNull(reference.put(str, key));
+      } else {
+        assertEquals(reference.get(str).intValue(), -(key + 1));
+      }
+    }
+    BytesRef scratch = new BytesRef();
+    for (Entry<String, Integer> entry : reference.entrySet()) {
+      ref.copyChars(entry.getKey());
+      assertEquals(entry.getValue().intValue(), hash.find(ref.get()));
+      assertEquals(entry.getKey(), hash.get(entry.getValue(), scratch).utf8ToString());
+    }
+  }
 }
