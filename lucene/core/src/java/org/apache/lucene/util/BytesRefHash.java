@@ -18,6 +18,7 @@ package org.apache.lucene.util;
 
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
+import org.apache.lucene.internal.hppc.BitMixer;
 import org.apache.lucene.util.ByteBlockPool.DirectAllocator;
 
 /**
@@ -509,8 +510,8 @@ public final class BytesRefHash implements Accountable {
   public int addByPoolOffset(int offset) {
     assert bytesStart != null : "bytesStart is null - not initialized";
     // final position
-    int code = offset;
-    int hashPos = offset & hashMask;
+    int code = offsetCode(offset);
+    int hashPos = code & hashMask;
     int e = ids[hashPos];
 
     // Conflict; use linear probe to find an open slot
@@ -537,6 +538,18 @@ public final class BytesRefHash implements Accountable {
       return e;
     }
     return -(e + 1);
+  }
+
+  /**
+   * Derives the probe code for a {@code bytesStart} entry that {@link #addByPoolOffset(int)} uses
+   * as an exact key. Pool offsets increase monotonically and already spread perfectly over the
+   * table, so they are used as-is. Inline-encoded entries instead pack the term's first byte into
+   * the low bits, so using them raw clusters every short term sharing a first byte into one slot;
+   * they are mixed to recover a uniform distribution. {@link #rehash} with {@code hashOnData=false}
+   * must derive codes the same way.
+   */
+  private static int offsetCode(int bytesStartValue) {
+    return isInline(bytesStartValue) ? BitMixer.mix(bytesStartValue) : bytesStartValue;
   }
 
   /**
@@ -569,7 +582,7 @@ public final class BytesRefHash implements Accountable {
           hashcode = code = pool.hash(bytesStartValue);
         }
       } else {
-        code = bytesStart[id];
+        code = offsetCode(bytesStart[id]);
         hashcode = 0;
       }
 

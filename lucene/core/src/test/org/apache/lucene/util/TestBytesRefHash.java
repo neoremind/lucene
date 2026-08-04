@@ -562,4 +562,33 @@ public class TestBytesRefHash extends LuceneTestCase {
       assertEquals(entry.getKey(), hash.get(entry.getValue(), scratch).utf8ToString());
     }
   }
+
+  public void testGetRefsRemainValidAcrossCalls() {
+    // Callers such as MultipassTermFilteredPresearcher#convertHash retain every ref returned by
+    // get(). Inline-encoded short terms must therefore not be decoded into shared scratch.
+    List<BytesRef> expected = new ArrayList<>();
+    List<BytesRef> retained = new ArrayList<>();
+    BytesRefBuilder ref = new BytesRefBuilder();
+    int numTerms = atLeast(200);
+    for (int i = 0; i < numTerms; i++) {
+      String str;
+      do {
+        // bias toward lengths at and around the inline boundary
+        str = TestUtil.randomRealisticUnicodeString(random(), 1, 4);
+      } while (str.length() == 0);
+      ref.copyChars(str);
+      if (hash.add(ref.get()) >= 0) {
+        expected.add(ref.toBytesRef());
+      }
+    }
+    for (int id = 0; id < hash.size(); id++) {
+      retained.add(hash.get(id, new BytesRef()));
+    }
+    for (int id = 0; id < expected.size(); id++) {
+      assertEquals(
+          "ref retained from get() was clobbered by a later get()",
+          expected.get(id),
+          retained.get(id));
+    }
+  }
 }
