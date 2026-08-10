@@ -415,4 +415,42 @@ public class TestBytesRefHash extends LuceneTestCase {
       assertTrue("key: " + key + " count: " + count + " string: " + string, key < count);
     }
   }
+
+  public void testSortAboveHalfOccupancy() {
+    // With a 3/4 max load factor the table can be more than half full when sort() is called;
+    // compact() must then grow ids[] so the radix sorter's bucket cache fits in the free upper
+    // half. Sweep term counts across every occupancy window of the initial capacity and the
+    // first few doublings, and exercise reuse (clear + reinit) after an expanding sort.
+    BytesRefHash hash =
+        new BytesRefHash(
+            new ByteBlockPool(new ByteBlockPool.DirectAllocator()),
+            16,
+            new BytesRefHash.DirectBytesStartArray(16));
+    BytesRefBuilder ref = new BytesRefBuilder();
+    BytesRef scratch = new BytesRef();
+    for (int numTerms = 1; numTerms <= 64; numTerms++) {
+      List<String> terms = new ArrayList<>();
+      for (int i = 0; i < numTerms; i++) {
+        terms.add(String.format(java.util.Locale.ROOT, "term%05d", i));
+      }
+      List<String> shuffled = new ArrayList<>(terms);
+      java.util.Collections.shuffle(shuffled, random());
+      for (String term : shuffled) {
+        ref.copyChars(term);
+        assertTrue(hash.add(ref.get()) >= 0);
+      }
+      assertEquals(numTerms, hash.size());
+      int[] sort = hash.sort();
+      // zero-padded ASCII terms: expected order is simply ascending i
+      for (int i = 0; i < numTerms; i++) {
+        assertEquals(
+            "numTerms=" + numTerms + " position=" + i,
+            terms.get(i),
+            hash.get(sort[i], scratch).utf8ToString());
+      }
+      hash.clear();
+      assertEquals(0, hash.size());
+      hash.reinit();
+    }
+  }
 }

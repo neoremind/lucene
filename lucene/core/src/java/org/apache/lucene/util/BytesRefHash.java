@@ -42,13 +42,16 @@ public final class BytesRefHash implements Accountable {
 
   public static final int DEFAULT_CAPACITY = 16;
 
+  public static final float DEFAULT_LOAD_FACTOR = 0.75f;
+
   // the following fields are needed by comparator,
   // so package private to prevent access$-methods:
   final BytesRefBlockPool pool;
   int[] bytesStart;
 
   private int hashSize;
-  private int hashHalfSize;
+  // Rehash when count reaches this threshold
+  private int hashGrowThreshold;
   private int hashMask;
   // This mask is used to extract the high bits from a hashcode
   private int highMask;
@@ -102,6 +105,7 @@ public final class BytesRefHash implements Accountable {
    */
   private int[] ids;
 
+  private final float loadFactor;
   private final BytesStartArray bytesStartArray;
   private final Counter bytesUsed;
 
@@ -120,6 +124,19 @@ public final class BytesRefHash implements Accountable {
 
   /** Creates a new {@link BytesRefHash} */
   public BytesRefHash(ByteBlockPool pool, int capacity, BytesStartArray bytesStartArray) {
+    this(pool, capacity, bytesStartArray, DEFAULT_LOAD_FACTOR);
+  }
+
+  /**
+   * Creates a new {@link BytesRefHash}.
+   *
+   * @param pool the byte block pool for term storage
+   * @param capacity initial hash table capacity (must be a power of two)
+   * @param bytesStartArray manages allocation of per-term start offsets
+   * @param loadFactor the load factor threshold for rehashing
+   */
+  public BytesRefHash(
+      ByteBlockPool pool, int capacity, BytesStartArray bytesStartArray, float loadFactor) {
     if (capacity <= 0) {
       throw new IllegalArgumentException("capacity must be greater than 0");
     }
@@ -127,8 +144,12 @@ public final class BytesRefHash implements Accountable {
     if (BitUtil.isZeroOrPowerOfTwo(capacity) == false) {
       throw new IllegalArgumentException("capacity must be a power of two, got " + capacity);
     }
+    if (loadFactor <= 0 || Float.isNaN(loadFactor)) {
+      throw new IllegalArgumentException("Illegal load factor: " + loadFactor);
+    }
+    this.loadFactor = loadFactor;
     hashSize = capacity;
-    hashHalfSize = hashSize >> 1;
+    hashGrowThreshold = growThreshold(hashSize);
     hashMask = hashSize - 1;
     highMask = ~hashMask;
     this.pool = new BytesRefBlockPool(pool);
@@ -178,6 +199,19 @@ public final class BytesRefHash implements Accountable {
    */
   public int[] compact() {
     assert bytesStart != null : "bytesStart is null - not initialized";
+
+    // sort() uses ids[count..hashSize-1] as a temporary bucket cache for the radix sorter and
+    // needs at least `count` free slots there. At a load factor above 1/2 this is not guaranteed,
+    // so allocate a larger array.
+    if (count * 2 > hashSize) {
+      final int newSize = BitUtil.nextHighestPowerOfTwo(count * 2);
+      bytesUsed.addAndGet(Integer.BYTES * (long) (newSize - hashSize));
+      ids = new int[newSize];
+      hashSize = newSize;
+      hashGrowThreshold = growThreshold(newSize);
+      hashMask = newSize - 1;
+      highMask = ~hashMask;
+    }
 
     // id is the sequence number when bytes added to the pool
     for (int i = 0; i < count; i++) {
@@ -282,7 +316,7 @@ public final class BytesRefHash implements Accountable {
       hashSize = newSize;
       ids = new int[hashSize];
       Arrays.fill(ids, -1);
-      hashHalfSize = newSize / 2;
+      hashGrowThreshold = growThreshold(newSize);
       hashMask = newSize - 1;
       highMask = ~hashMask;
       return true;
@@ -345,7 +379,7 @@ public final class BytesRefHash implements Accountable {
       assert ids[hashPos] == -1;
       ids[hashPos] = e | (hashcode & highMask);
 
-      if (count == hashHalfSize) {
+      if (count >= hashGrowThreshold) {
         rehash(2 * hashSize, true);
       }
       return e;
@@ -419,7 +453,7 @@ public final class BytesRefHash implements Accountable {
       assert ids[hashPos] == -1;
       ids[hashPos] = e;
 
-      if (count == hashHalfSize) {
+      if (count >= hashGrowThreshold) {
         rehash(2 * hashSize, false);
       }
       return e;
@@ -428,7 +462,8 @@ public final class BytesRefHash implements Accountable {
   }
 
   /**
-   * Called when hash is too small ({@code > 50%} occupied) or too large ({@code < 20%} occupied).
+   * Called when hash is too small (count reaches load factor threshold) or too large (during {@link
+   * #clear} when occupancy was below 25%).
    */
   private void rehash(final int newSize, boolean hashOnData) {
     final int newMask = newSize - 1;
@@ -465,7 +500,12 @@ public final class BytesRefHash implements Accountable {
     hashMask = newMask;
     highMask = newHighMask;
     hashSize = newSize;
-    hashHalfSize = newSize / 2;
+    hashGrowThreshold = growThreshold(newSize);
+  }
+
+  /** Maximum number of entries before the hash of the given size must grow. */
+  private int growThreshold(int hashSize) {
+    return (int) (hashSize * loadFactor);
   }
 
   // TODO: maybe use long?  But our keys are typically short...
