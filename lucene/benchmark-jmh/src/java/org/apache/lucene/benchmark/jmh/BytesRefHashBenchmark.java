@@ -61,9 +61,9 @@ import org.openjdk.jmh.infra.Blackhole;
  * <h2>Benchmarks</h2>
  *
  * <ul>
- *   <li>{@link #fillSegment} — models a full DWPT segment lifecycle: empty hash, stream of adds
- *       with natural growth and rehashes. This is the most realistic benchmark.
- *   <li>{@link #fillSegmentAndSort} — fillSegment plus the flush-time {@code sort()}.
+ *   <li>{@link #add} — models a full DWPT segment lifecycle: empty hash, stream of adds with
+ *       natural growth and rehashes. This is the most realistic benchmark.
+ *   <li>{@link #addAndSort} — add plus the flush-time {@code sort()}.
  * </ul>
  *
  * <pre>
@@ -132,7 +132,7 @@ public class BytesRefHashBenchmark {
    * first insertion; cold terms are mostly inserts. Models real DWPT indexing.
    */
   @Benchmark
-  public void fillSegment(Blackhole bh) {
+  public void add(Blackhole bh) {
     final BytesRefHash hash = new BytesRefHash();
     final BytesRef[] terms = this.terms;
     final int[] plan = this.plan;
@@ -145,8 +145,8 @@ public class BytesRefHashBenchmark {
   }
 
   /** Segment lifecycle plus flush-time sort. */
-  @Benchmark
-  public void fillSegmentAndSort(Blackhole bh) {
+  //@Benchmark
+  public void addAndSort(Blackhole bh) {
     final BytesRefHash hash = new BytesRefHash();
     final BytesRef[] terms = this.terms;
     final int[] plan = this.plan;
