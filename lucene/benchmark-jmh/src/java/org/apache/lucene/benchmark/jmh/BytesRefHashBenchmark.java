@@ -109,7 +109,7 @@ public class BytesRefHashBenchmark {
   /** Pre-computed access plan: each entry is an index into terms[]. */
   private int[] plan;
 
-  /** Reusable hash — recreated between invocations so alloc cost is not measured in the loop. */
+  /** Reusable hash — cleared between invocations to avoid GC noise from dead instances. */
   private BytesRefHash hash;
 
   @Setup(Level.Trial)
@@ -127,12 +127,24 @@ public class BytesRefHashBenchmark {
     for (int i = 0; i < STREAM_LEN; i++) {
       plan[i] = skewedIndex(rng, vocabSize, skew);
     }
+
+    // Pre-grow the hash by running one full pass, then clear. This ensures the internal arrays
+    // are already at their final size, so measurements reflect steady-state probe cost without
+    // rehash noise. Rehash is O(vocabSize) total — amortized to < 0.1 copies/add — and is
+    // identical between load factor variants (both double at their respective threshold).
+    hash = new BytesRefHash();
+    for (int i = 0; i < STREAM_LEN; i++) {
+      hash.add(terms[plan[i]]);
+    }
+    hash.clear(true);
+    hash.reinit();
   }
 
-  /** Create a fresh hash before each invocation. */
+  /** Reset hash before each invocation — arrays stay pre-sized, no GC pressure. */
   @Setup(Level.Invocation)
   public void resetHash() {
-    hash = new BytesRefHash();
+    hash.clear(true);
+    hash.reinit();
   }
 
   /**
