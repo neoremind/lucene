@@ -63,7 +63,6 @@ import org.openjdk.jmh.infra.Blackhole;
  * <ul>
  *   <li>{@link #add} — models a full DWPT segment lifecycle: empty hash, stream of adds with
  *       natural growth and rehashes. This is the most realistic benchmark.
- *   <li>{@link #addAndSort} — add plus the flush-time {@code sort()}.
  * </ul>
  *
  * <pre>
@@ -110,6 +109,9 @@ public class BytesRefHashBenchmark {
   /** Pre-computed access plan: each entry is an index into terms[]. */
   private int[] plan;
 
+  /** Reusable hash — recreated between invocations so alloc cost is not measured in the loop. */
+  private BytesRefHash hash;
+
   @Setup(Level.Trial)
   public void generateData() {
     Random rng = new Random(SEED);
@@ -127,36 +129,27 @@ public class BytesRefHashBenchmark {
     }
   }
 
-  /**
-   * Full segment lifecycle: empty hash, add stream with natural growth. Hot terms become hits after
-   * first insertion; cold terms are mostly inserts. Models real DWPT indexing.
-   */
-  @Benchmark
-  public void add(Blackhole bh) {
-    final BytesRefHash hash = new BytesRefHash();
-    final BytesRef[] terms = this.terms;
-    final int[] plan = this.plan;
-    long sink = 0;
-    for (int i = 0; i < STREAM_LEN; i++) {
-      sink += hash.add(terms[plan[i]]);
-    }
-    bh.consume(sink);
-    hash.close();
+  /** Create a fresh hash before each invocation. */
+  @Setup(Level.Invocation)
+  public void resetHash() {
+    hash = new BytesRefHash();
   }
 
-  /** Segment lifecycle plus flush-time sort. */
-  //@Benchmark
-  public void addAndSort(Blackhole bh) {
-    final BytesRefHash hash = new BytesRefHash();
+  /**
+   * Full segment lifecycle: add stream with natural growth. Hot terms become hits after first
+   * insertion; cold terms are mostly inserts. Models real DWPT indexing.
+   */
+  @Benchmark
+  @OperationsPerInvocation(STREAM_LEN)
+  public void add(Blackhole bh) {
+    final BytesRefHash hash = this.hash;
     final BytesRef[] terms = this.terms;
     final int[] plan = this.plan;
     long sink = 0;
     for (int i = 0; i < STREAM_LEN; i++) {
       sink += hash.add(terms[plan[i]]);
     }
-    bh.consume(hash.sort());
     bh.consume(sink);
-    hash.close();
   }
 
   /**
