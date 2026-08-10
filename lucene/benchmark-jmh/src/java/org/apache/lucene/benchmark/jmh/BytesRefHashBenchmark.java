@@ -32,6 +32,7 @@ import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
+import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.infra.Blackhole;
 
@@ -109,7 +110,6 @@ public class BytesRefHashBenchmark {
   /** Pre-computed access plan: each entry is an index into terms[]. */
   private int[] plan;
 
-  /** Reusable hash — cleared between invocations to avoid GC noise from dead instances. */
   private BytesRefHash hash;
 
   @Setup(Level.Trial)
@@ -127,30 +127,20 @@ public class BytesRefHashBenchmark {
     for (int i = 0; i < STREAM_LEN; i++) {
       plan[i] = skewedIndex(rng, vocabSize, skew);
     }
-
-    // Pre-grow the hash by running one full pass, then clear. This ensures the internal arrays
-    // are already at their final size, so measurements reflect steady-state probe cost without
-    // rehash noise. Rehash is O(vocabSize) total — amortized to < 0.1 copies/add — and is
-    // identical between load factor variants (both double at their respective threshold).
-    hash = new BytesRefHash();
-    for (int i = 0; i < STREAM_LEN; i++) {
-      hash.add(terms[plan[i]]);
-    }
-    hash.clear(true);
-    hash.reinit();
   }
 
-  /** Reset hash before each invocation — arrays stay pre-sized, no GC pressure. */
   @Setup(Level.Invocation)
-  public void resetHash() {
-    hash.clear(true);
-    hash.reinit();
+  public void createHash() {
+    hash = new BytesRefHash();
   }
 
-  /**
-   * Full segment lifecycle: add stream with natural growth. Hot terms become hits after first
-   * insertion; cold terms are mostly inserts. Models real DWPT indexing.
-   */
+  /** Close the old hash and hint GC between invocations to avoid mid-measurement pauses. */
+  @TearDown(Level.Invocation)
+  public void cleanup() {
+    hash.close();
+    System.gc();
+  }
+
   @Benchmark
   @OperationsPerInvocation(STREAM_LEN)
   public void add(Blackhole bh) {
