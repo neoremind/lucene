@@ -82,7 +82,7 @@ import org.openjdk.jmh.infra.Blackhole;
 public class BytesRefHashBenchmark {
 
   /** Number of add() calls per benchmark invocation. */
-  static final int STREAM_LEN = 1 << 20;
+  static final int STREAM_LEN = 1 << 21;
 
   private static final long SEED = 42L;
 
@@ -101,7 +101,7 @@ public class BytesRefHashBenchmark {
    * Power-law skew. Higher values concentrate accesses on hot terms. skew=2 is moderate (hottest
    * 10% get 32% of accesses); skew=3 is heavy (hottest 10% get 46%).
    */
-  @Param({"1.0", "2.0", "3.0", "5.0"})
+  @Param({"1.0", "3.0", "5.0"})
   double skew;
 
   /** The vocabulary: indexed 0 = hottest. */
