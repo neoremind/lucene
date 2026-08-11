@@ -138,7 +138,6 @@ public class BytesRefHashBenchmark {
   @TearDown(Level.Invocation)
   public void cleanup() {
     hash.close();
-    System.gc();
   }
 
   @Benchmark
