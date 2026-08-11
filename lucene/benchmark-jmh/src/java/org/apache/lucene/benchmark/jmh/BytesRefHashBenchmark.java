@@ -105,10 +105,10 @@ public class BytesRefHashBenchmark {
   double skew;
 
   /** The vocabulary: indexed 0 = hottest. */
-  private BytesRef[] terms;
+  private BytesRef[] vocab;
 
-  /** Pre-computed access plan: each entry is an index into terms[]. */
-  private int[] plan;
+  /** Pre-built stream of terms to add — sequential access, no indirection during benchmark. */
+  private BytesRef[] stream;
 
   private BytesRefHash hash;
 
@@ -117,15 +117,23 @@ public class BytesRefHashBenchmark {
     Random rng = new Random(SEED);
 
     // Build vocabulary
-    terms = new BytesRef[vocabSize];
+    vocab = new BytesRef[vocabSize];
     for (int i = 0; i < vocabSize; i++) {
-      terms[i] = randomTerm(rng, shortRatio);
+      vocab[i] = randomTerm(rng, shortRatio);
     }
 
-    // Build access plan with power-law skew
-    plan = new int[STREAM_LEN];
-    for (int i = 0; i < STREAM_LEN; i++) {
-      plan[i] = skewedIndex(rng, vocabSize, skew);
+    // Build stream: each slot is a direct BytesRef reference.
+    // For skew=1.0 (uniform), cycle through vocab sequentially — simulates round-robin access
+    // without random index overhead. For skew>1.0, pick by power-law distribution.
+    stream = new BytesRef[STREAM_LEN];
+    if (skew == 1.0) {
+      for (int i = 0; i < STREAM_LEN; i++) {
+        stream[i] = vocab[i % vocabSize];
+      }
+    } else {
+      for (int i = 0; i < STREAM_LEN; i++) {
+        stream[i] = vocab[skewedIndex(rng, vocabSize, skew)];
+      }
     }
   }
 
@@ -144,11 +152,10 @@ public class BytesRefHashBenchmark {
   @OperationsPerInvocation(STREAM_LEN)
   public void add(Blackhole bh) {
     final BytesRefHash hash = this.hash;
-    final BytesRef[] terms = this.terms;
-    final int[] plan = this.plan;
+    final BytesRef[] stream = this.stream;
     long sink = 0;
     for (int i = 0; i < STREAM_LEN; i++) {
-      sink += hash.add(terms[plan[i]]);
+      sink += hash.add(stream[i]);
     }
     bh.consume(sink);
   }
