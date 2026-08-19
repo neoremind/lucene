@@ -105,8 +105,7 @@ public class TermsHashPerFieldBenchmark {
   @Param({"1000"})
   int numDocs;
 
-  private BytesRef[] terms;
-  private int[] plan;
+  private BytesRef[] stream;
   private int tokensPerDoc;
 
   private FreqProxTermsWriter termsHash;
@@ -117,35 +116,47 @@ public class TermsHashPerFieldBenchmark {
     Random rng = new Random(SEED);
     boolean isUUID = "UUID".equals(skew);
 
+    // Generate vocabSize unique terms directly into the first batch of stream[].
+    // Then fill remaining batches by copying + shuffling — each batch contains the
+    // same vocabSize terms in a random order. This gives:
+    // - Sequential memory access (no indirection in the hot loop)
+    // - Random term order within each batch (realistic hash access pattern)
+    // - Controlled term reuse: each term seen STREAM_LEN/vocabSize times across batches
+    stream = new BytesRef[STREAM_LEN];
+
+    // First batch: generate unique terms
     if (isUUID) {
-      // UUID workload: 16-byte unique terms, 1 per doc, sequential
-      terms = new BytesRef[vocabSize];
       for (int i = 0; i < vocabSize; i++) {
-        terms[i] = randomUUIDTerm(rng);
-      }
-      plan = new int[STREAM_LEN];
-      for (int i = 0; i < STREAM_LEN; i++) {
-        plan[i] = i % vocabSize;
+        stream[i] = randomUUIDTerm(rng);
       }
       tokensPerDoc = 1;
     } else {
-      // Random terms with skew-based access
-      double skewValue = Double.parseDouble(skew);
-      terms = new BytesRef[vocabSize];
       for (int i = 0; i < vocabSize; i++) {
-        terms[i] = randomTerm(rng, shortRatio);
-      }
-      plan = new int[STREAM_LEN];
-      if (skewValue == 1.0) {
-        for (int i = 0; i < STREAM_LEN; i++) {
-          plan[i] = i % vocabSize;
-        }
-      } else {
-        for (int i = 0; i < STREAM_LEN; i++) {
-          plan[i] = skewedIndex(rng, vocabSize, skewValue);
-        }
+        stream[i] = randomTerm(rng, shortRatio);
       }
       tokensPerDoc = STREAM_LEN / numDocs;
+    }
+
+    // Shuffle the first batch
+    for (int i = vocabSize - 1; i > 0; i--) {
+      int j = rng.nextInt(i + 1);
+      BytesRef tmp = stream[i];
+      stream[i] = stream[j];
+      stream[j] = tmp;
+    }
+
+    // Fill remaining batches: copy first batch then shuffle each
+    for (int batch = 1; batch * vocabSize < STREAM_LEN; batch++) {
+      int base = batch * vocabSize;
+      int len = Math.min(vocabSize, STREAM_LEN - base);
+      System.arraycopy(stream, 0, stream, base, len);
+      // Shuffle this batch
+      for (int i = len - 1; i > 0; i--) {
+        int j = rng.nextInt(i + 1);
+        BytesRef tmp = stream[base + i];
+        stream[base + i] = stream[base + j];
+        stream[base + j] = tmp;
+      }
     }
   }
 
@@ -158,8 +169,7 @@ public class TermsHashPerFieldBenchmark {
 
   @Benchmark
   public void indexSegment(Blackhole bh) throws IOException {
-    final BytesRef[] terms = this.terms;
-    final int[] plan = this.plan;
+    final BytesRef[] stream = this.stream;
     final int tokensPerDoc = this.tokensPerDoc;
     final FreqProxTermsWriter termsHash = this.termsHash;
     final TermsHashPerField perField = this.perField;
@@ -173,7 +183,7 @@ public class TermsHashPerFieldBenchmark {
         docID++;
         tokenInDoc = 0;
       }
-      perField.add(terms[plan[i]], docID);
+      perField.add(stream[i], docID);
       tokenInDoc++;
     }
     perField.finish();
@@ -182,8 +192,7 @@ public class TermsHashPerFieldBenchmark {
 
   @Benchmark
   public void indexSegmentAndSort(Blackhole bh) throws IOException {
-    final BytesRef[] terms = this.terms;
-    final int[] plan = this.plan;
+    final BytesRef[] stream = this.stream;
     final int tokensPerDoc = this.tokensPerDoc;
     final FreqProxTermsWriter termsHash = this.termsHash;
     final TermsHashPerField perField = this.perField;
@@ -197,7 +206,7 @@ public class TermsHashPerFieldBenchmark {
         docID++;
         tokenInDoc = 0;
       }
-      perField.add(terms[plan[i]], docID);
+      perField.add(stream[i], docID);
       tokenInDoc++;
     }
     perField.finish();
@@ -244,11 +253,6 @@ public class TermsHashPerFieldBenchmark {
   }
 
   // ===== Helpers =====
-
-  private static int skewedIndex(Random rng, int vocabSize, double skew) {
-    int idx = (int) (vocabSize * Math.pow(rng.nextDouble(), skew));
-    return Math.min(idx, vocabSize - 1);
-  }
 
   private static BytesRef randomTerm(Random rng, double shortRatio) {
     int len = (rng.nextDouble() < shortRatio) ? 1 + rng.nextInt(8) : 9 + rng.nextInt(24);
