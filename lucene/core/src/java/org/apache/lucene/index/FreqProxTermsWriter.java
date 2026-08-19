@@ -40,9 +40,9 @@ import org.apache.lucene.util.TimSorter;
 import org.apache.lucene.util.automaton.CompiledAutomaton;
 import org.apache.lucene.util.packed.PackedInts;
 
-final class FreqProxTermsWriter extends TermsHash {
+public final class FreqProxTermsWriter extends TermsHash {
 
-  FreqProxTermsWriter(
+  public FreqProxTermsWriter(
       final IntBlockPool.Allocator intBlockAllocator,
       final ByteBlockPool.Allocator byteBlockAllocator,
       Counter bytesUsed,

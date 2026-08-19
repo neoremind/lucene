@@ -32,7 +32,7 @@ import org.apache.lucene.util.IntBlockPool;
  * once this is done internal data-structures point to the current offset of each stream that can be
  * written to.
  */
-abstract class TermsHashPerField implements Comparable<TermsHashPerField> {
+public abstract class TermsHashPerField implements Comparable<TermsHashPerField> {
   private static final int HASH_INIT_SIZE = 4;
 
   private final TermsHashPerField nextPerField;
@@ -111,13 +111,13 @@ abstract class TermsHashPerField implements Comparable<TermsHashPerField> {
    * Collapse the hash table and sort in-place; also sets this.sortedTermIDs to the results This
    * method must not be called twice unless {@link #reset()} or {@link #reinitHash()} was called.
    */
-  final void sortTerms() {
+  public final void sortTerms() {
     assert sortedTermIDs == null;
     sortedTermIDs = bytesHash.sort();
   }
 
   /** Returns the sorted term IDs. {@link #sortTerms()} must be called before */
-  final int[] getSortedTermIDs() {
+  public final int[] getSortedTermIDs() {
     assert sortedTermIDs != null;
     return sortedTermIDs;
   }
@@ -189,7 +189,7 @@ abstract class TermsHashPerField implements Comparable<TermsHashPerField> {
    * Called once per inverted token. This is the primary entry point (for first TermsHash); postings
    * use this API.
    */
-  void add(BytesRef termBytes, final int docID) throws IOException {
+  public void add(BytesRef termBytes, final int docID) throws IOException {
     assert assertDocId(docID);
     // We are first in the chain so we must "intern" the
     // term text into textStart address
@@ -332,13 +332,13 @@ abstract class TermsHashPerField implements Comparable<TermsHashPerField> {
   }
 
   /** Finish adding all instances of this field to the current document. */
-  void finish() throws IOException {
+  public void finish() throws IOException {
     if (nextPerField != null) {
       nextPerField.finish();
     }
   }
 
-  final int getNumTerms() {
+  public final int getNumTerms() {
     return bytesHash.size();
   }
 
@@ -346,7 +346,7 @@ abstract class TermsHashPerField implements Comparable<TermsHashPerField> {
    * Start adding a new field instance; first is true if this is the first time this field name was
    * seen in the document.
    */
-  boolean start(IndexableField field, boolean first) {
+  public boolean start(IndexableField field, boolean first) {
     if (nextPerField != null) {
       doNextCall = nextPerField.start(field, first);
     }

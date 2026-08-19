@@ -34,7 +34,7 @@ import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.IntBlockPool;
 import org.apache.lucene.util.RamUsageEstimator;
 
-class TermVectorsConsumer extends TermsHash {
+public class TermVectorsConsumer extends TermsHash {
   protected final Directory directory;
   protected final SegmentInfo info;
   protected final Codec codec;
@@ -56,7 +56,7 @@ class TermVectorsConsumer extends TermsHash {
   // it's cleaner than checking if the writer is null all over the place
   Accountable accountable = Accountable.NULL_ACCOUNTABLE;
 
-  TermVectorsConsumer(
+  public TermVectorsConsumer(
       final IntBlockPool.Allocator intBlockAllocator,
       final ByteBlockPool.Allocator byteBlockAllocator,
       Directory directory,
@@ -174,7 +174,7 @@ class TermVectorsConsumer extends TermsHash {
   }
 
   @Override
-  void startDocument() {
+  public void startDocument() {
     resetFields();
     numVectorFields = 0;
   }
