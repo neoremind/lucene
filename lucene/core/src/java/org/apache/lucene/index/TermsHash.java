@@ -51,8 +51,8 @@ abstract class TermsHash {
 
     if (nextTermsHash != null) {
       // We are primary
-      termBytePool = bytePool;
-      nextTermsHash.termBytePool = bytePool;
+      termBytePool = new ByteBlockPool(byteBlockAllocator);
+      nextTermsHash.termBytePool = termBytePool;
     }
   }
 
@@ -71,6 +71,10 @@ abstract class TermsHash {
     // we don't reuse so we drop everything and don't fill with 0
     intPool.reset(false, false);
     bytePool.reset(false, false);
+    // Only the primary owns termBytePool (nextTermsHash != null means we are primary)
+    if (nextTermsHash != null && termBytePool != null) {
+      termBytePool.reset(false, false);
+    }
   }
 
   void flush(
