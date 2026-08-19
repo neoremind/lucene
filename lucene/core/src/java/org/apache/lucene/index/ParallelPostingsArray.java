@@ -18,7 +18,7 @@ package org.apache.lucene.index;
 
 import org.apache.lucene.util.ArrayUtil;
 
-class ParallelPostingsArray {
+public class ParallelPostingsArray {
   static final int BYTES_PER_POSTING = 3 * Integer.BYTES;
 
   final int size;

@@ -66,7 +66,7 @@ final class TermVectorsConsumerPerField extends TermsHashPerField {
    * RAMOutputStream, which is then quickly flushed to the real term vectors files in the Directory.
    */
   @Override
-  void finish() {
+  public void finish() {
     if (!doVectors || getNumTerms() == 0) {
       return;
     }
@@ -128,7 +128,7 @@ final class TermVectorsConsumerPerField extends TermsHashPerField {
   }
 
   @Override
-  boolean start(IndexableField field, boolean first) {
+  public boolean start(IndexableField field, boolean first) {
     super.start(field, first);
     termFreqAtt = fieldState.termFreqAttribute;
     assert field.fieldType().indexOptions() != IndexOptions.NONE;

@@ -25,7 +25,7 @@ import org.apache.lucene.util.BytesRef;
 // TODO: break into separate freq and prox writers as
 // codecs; make separate container (tii/tis/skip/*) that can
 // be configured as any number of files 1..N
-final class FreqProxTermsWriterPerField extends TermsHashPerField {
+public final class FreqProxTermsWriterPerField extends TermsHashPerField {
 
   private FreqProxPostingsArray freqProxPostingsArray;
   private final FieldInvertState fieldState;
@@ -42,7 +42,7 @@ final class FreqProxTermsWriterPerField extends TermsHashPerField {
   /** Set to true if any token had a payload in the current segment. */
   boolean sawPayloads;
 
-  FreqProxTermsWriterPerField(
+  public FreqProxTermsWriterPerField(
       FieldInvertState invertState,
       TermsHash termsHash,
       FieldInfo fieldInfo,
@@ -65,7 +65,7 @@ final class FreqProxTermsWriterPerField extends TermsHashPerField {
   }
 
   @Override
-  void finish() throws IOException {
+  public void finish() throws IOException {
     super.finish();
     if (sawPayloads) {
       fieldInfo.setStorePayloads();
@@ -73,7 +73,7 @@ final class FreqProxTermsWriterPerField extends TermsHashPerField {
   }
 
   @Override
-  boolean start(IndexableField f, boolean first) {
+  public boolean start(IndexableField f, boolean first) {
     super.start(f, first);
     termFreqAtt = fieldState.termFreqAttribute;
     payloadAttribute = fieldState.payloadAttribute;
@@ -232,7 +232,7 @@ final class FreqProxTermsWriterPerField extends TermsHashPerField {
     return new FreqProxPostingsArray(size, hasFreq, hasProx, hasOffsets);
   }
 
-  static final class FreqProxPostingsArray extends ParallelPostingsArray {
+  public static final class FreqProxPostingsArray extends ParallelPostingsArray {
     public FreqProxPostingsArray(
         int size, boolean writeFreqs, boolean writeProx, boolean writeOffsets) {
       super(size);

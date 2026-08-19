@@ -30,14 +30,14 @@ import org.apache.lucene.util.IntBlockPool;
  * this class, eg {@link FreqProxTermsWriter} and {@link TermVectorsConsumer}, write their own byte
  * streams under each term.
  */
-abstract class TermsHash {
+public abstract class TermsHash {
 
   final TermsHash nextTermsHash;
 
-  final IntBlockPool intPool;
-  final ByteBlockPool bytePool;
-  ByteBlockPool termBytePool;
-  final Counter bytesUsed;
+  public final IntBlockPool intPool;
+  public final ByteBlockPool bytePool;
+  public ByteBlockPool termBytePool;
+  public final Counter bytesUsed;
 
   TermsHash(
       final IntBlockPool.Allocator intBlockAllocator,
@@ -92,7 +92,7 @@ abstract class TermsHash {
     }
   }
 
-  abstract TermsHashPerField addField(FieldInvertState fieldInvertState, FieldInfo fieldInfo);
+  public abstract TermsHashPerField addField(FieldInvertState fieldInvertState, FieldInfo fieldInfo);
 
   void finishDocument(int docID) throws IOException {
     if (nextTermsHash != null) {
@@ -100,7 +100,7 @@ abstract class TermsHash {
     }
   }
 
-  void startDocument() throws IOException {
+  public void startDocument() throws IOException {
     if (nextTermsHash != null) {
       nextTermsHash.startDocument();
     }
