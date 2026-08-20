@@ -83,10 +83,6 @@ public class TermsHashPerFieldBenchmark {
 
   private static final long SEED = 42L;
 
-  /** Total unique terms. Controls ids[] table size and cache behavior. */
-  @Param({"65536", "262144", "1048576"})
-  int vocabSize;
-
   /**
    * Fraction of vocabulary that is short (1..8 bytes). Rest is long (9..32 bytes). Ignored for
    * uuid.
@@ -95,8 +91,14 @@ public class TermsHashPerFieldBenchmark {
   double shortRatio;
 
   /**
-   * Power-law skew or "UUID" for the UUID workload. skew=1.0 = sequential cycling; skew=3.0+ =
-   * hot terms; "UUID" = 16-byte unique terms, 1 per doc, sequential (primary key pattern).
+   * Workload type:
+   * <ul>
+   *   <li>"1.0" — all terms are randomly generated (every add is a new unique term, exercises
+   *       newTerm path exclusively)
+   *   <li>"3.0" — ~70% of adds hit existing terms (exercises addTerm path heavily)
+   *   <li>"6.0" — ~85% of adds hit existing terms (very hot terms, extreme reuse)
+   *   <li>"UUID" — 16-byte unique terms, 1 per doc (primary key pattern, all newTerm)
+   * </ul>
    */
   @Param({"1.0", "3.0", "6.0", "UUID"})
   String skew;
@@ -116,47 +118,38 @@ public class TermsHashPerFieldBenchmark {
     Random rng = new Random(SEED);
     boolean isUUID = "UUID".equals(skew);
 
-    // Generate vocabSize unique terms directly into the first batch of stream[].
-    // Then fill remaining batches by copying + shuffling — each batch contains the
-    // same vocabSize terms in a random order. This gives:
-    // - Sequential memory access (no indirection in the hot loop)
-    // - Random term order within each batch (realistic hash access pattern)
-    // - Controlled term reuse: each term seen STREAM_LEN/vocabSize times across batches
     stream = new BytesRef[STREAM_LEN];
 
-    // First batch: generate unique terms
     if (isUUID) {
-      for (int i = 0; i < vocabSize; i++) {
+      // UUID: every term is unique 16 bytes, 1 per doc
+      for (int i = 0; i < STREAM_LEN; i++) {
         stream[i] = randomUUIDTerm(rng);
       }
       tokensPerDoc = 1;
     } else {
-      for (int i = 0; i < vocabSize; i++) {
-        stream[i] = randomTerm(rng, shortRatio);
+      double skewValue = Double.parseDouble(skew);
+      if (skewValue == 1.0) {
+        // All new terms: every add() is a brand new term (pure newTerm path)
+        for (int i = 0; i < STREAM_LEN; i++) {
+          stream[i] = randomTerm(rng, shortRatio);
+        }
+      } else {
+        // Mix of new and seen terms: generate terms, then randomly reuse earlier ones
+        // based on skew. Higher skew = more reuse of already-seen terms.
+        // Probability of reusing an existing term = 1 - 1/skewValue
+        double reuseProbability = 1.0 - 1.0 / skewValue;
+        stream[0] = randomTerm(rng, shortRatio);
+        for (int i = 1; i < STREAM_LEN; i++) {
+          if (rng.nextDouble() < reuseProbability) {
+            // Pick a previously seen term at random
+            stream[i] = stream[rng.nextInt(i)];
+          } else {
+            // New unique term
+            stream[i] = randomTerm(rng, shortRatio);
+          }
+        }
       }
       tokensPerDoc = STREAM_LEN / numDocs;
-    }
-
-    // Shuffle the first batch
-    for (int i = vocabSize - 1; i > 0; i--) {
-      int j = rng.nextInt(i + 1);
-      BytesRef tmp = stream[i];
-      stream[i] = stream[j];
-      stream[j] = tmp;
-    }
-
-    // Fill remaining batches: copy first batch then shuffle each
-    for (int batch = 1; batch * vocabSize < STREAM_LEN; batch++) {
-      int base = batch * vocabSize;
-      int len = Math.min(vocabSize, STREAM_LEN - base);
-      System.arraycopy(stream, 0, stream, base, len);
-      // Shuffle this batch
-      for (int i = len - 1; i > 0; i--) {
-        int j = rng.nextInt(i + 1);
-        BytesRef tmp = stream[base + i];
-        stream[base + i] = stream[base + j];
-        stream[base + j] = tmp;
-      }
     }
   }
 
