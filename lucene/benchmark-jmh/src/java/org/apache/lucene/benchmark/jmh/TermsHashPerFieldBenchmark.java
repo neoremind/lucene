@@ -113,6 +113,12 @@ public class TermsHashPerFieldBenchmark {
   private FreqProxTermsWriter termsHash;
   private TermsHashPerField perField;
 
+  /**
+   * Fixed vocabulary size for seen-term reuse when skew > 1.0. The hash table reaches this size
+   * quickly then stays in steady-state addTerm mode for the rest of the stream.
+   */
+  private static final int VOCAB_SIZE = 1 << 16; // 65536 unique terms
+
   @Setup(Level.Trial)
   public void generateData() {
     Random rng = new Random(SEED);
@@ -134,17 +140,20 @@ public class TermsHashPerFieldBenchmark {
           stream[i] = randomTerm(rng, shortRatio);
         }
       } else {
-        // Mix of new and seen terms: generate terms, then randomly reuse earlier ones
-        // based on skew. Higher skew = more reuse of already-seen terms.
-        // Probability of reusing an existing term = 1 - 1/skewValue
+        // Fixed vocab table: generate VOCAB_SIZE unique terms upfront, then fill the stream
+        // by picking from this table using power-law skew (low indices = hot terms like
+        // "the", "a", "and"), or generating new unseen terms.
+        BytesRef[] vocab = new BytesRef[VOCAB_SIZE];
+        for (int i = 0; i < VOCAB_SIZE; i++) {
+          vocab[i] = randomTerm(rng, shortRatio);
+        }
         double reuseProbability = 1.0 - 1.0 / skewValue;
-        stream[0] = randomTerm(rng, shortRatio);
-        for (int i = 1; i < STREAM_LEN; i++) {
+        for (int i = 0; i < STREAM_LEN; i++) {
           if (rng.nextDouble() < reuseProbability) {
-            // Pick a previously seen term at random
-            stream[i] = stream[rng.nextInt(i)];
+            // Pick from vocab with power-law: low indices are hot (Zipf-like)
+            stream[i] = vocab[skewedIndex(rng, VOCAB_SIZE, skewValue)];
           } else {
-            // New unique term
+            // New unique term (unseen → newTerm path)
             stream[i] = randomTerm(rng, shortRatio);
           }
         }
@@ -246,6 +255,15 @@ public class TermsHashPerFieldBenchmark {
   }
 
   // ===== Helpers =====
+
+  /**
+   * Picks a vocabulary index biased toward 0 (hottest). Models Zipf's law: index = (int)(vocabSize
+   * * pow(uniform, skew)). Hot terms (low indices) get exponentially more accesses.
+   */
+  private static int skewedIndex(Random rng, int vocabSize, double skew) {
+    int idx = (int) (vocabSize * Math.pow(rng.nextDouble(), skew));
+    return Math.min(idx, vocabSize - 1);
+  }
 
   private static BytesRef randomTerm(Random rng, double shortRatio) {
     int len = (rng.nextDouble() < shortRatio) ? 1 + rng.nextInt(8) : 9 + rng.nextInt(24);
