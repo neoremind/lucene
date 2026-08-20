@@ -146,21 +146,13 @@ public class TermsHashPerFieldBenchmark {
       tokensPerDoc = 1;
     } else {
       double skewValue = Double.parseDouble(skew);
-      // Generate vocab terms packed into chunks
+      // Generate vocab terms (one-off, simple allocation)
       BytesRef[] vocab = new BytesRef[VOCAB_SIZE];
-      byte[] vChunk = new byte[CHUNK_SIZE];
-      int vPos = CHUNK_SIZE; // force first chunk allocation
       for (int i = 0; i < VOCAB_SIZE; i++) {
         int len = (rng.nextDouble() < shortRatio) ? 1 + rng.nextInt(8) : 9 + rng.nextInt(24);
-        if (vPos + len > CHUNK_SIZE) {
-          vChunk = new byte[CHUNK_SIZE];
-          vPos = 0;
-        }
-        for (int b = 0; b < len; b++) {
-          vChunk[vPos + b] = (byte) rng.nextInt(256);
-        }
-        vocab[i] = new BytesRef(vChunk, vPos, len);
-        vPos += len;
+        byte[] bytes = new byte[len];
+        rng.nextBytes(bytes);
+        vocab[i] = new BytesRef(bytes, 0, len);
       }
 
       // Fill stream: pick from vocab by skew, hard copy into chunked storage
