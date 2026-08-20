@@ -79,7 +79,10 @@ import org.openjdk.jmh.infra.Blackhole;
 public class TermsHashPerFieldBenchmark {
 
   /** Number of add() calls per benchmark invocation. */
-  static final int STREAM_LEN = 1 << 20; // ~1M tokens
+  static final int STREAM_LEN = 1 << 21; // 2M tokens
+
+  /** Fixed vocabulary size = STREAM_LEN / 8. */
+  private static final int VOCAB_SIZE = STREAM_LEN / 8; // 256K unique terms
 
   private static final long SEED = 42L;
 
@@ -93,17 +96,16 @@ public class TermsHashPerFieldBenchmark {
   /**
    * Workload type:
    * <ul>
-   *   <li>"1.0" — all terms are randomly generated (every add is a new unique term, exercises
-   *       newTerm path exclusively)
-   *   <li>"3.0" — ~70% of adds hit existing terms (exercises addTerm path heavily)
-   *   <li>"6.0" — ~85% of adds hit existing terms (very hot terms, extreme reuse)
+   *   <li>"1.0" — mild skew, most vocab terms accessed relatively evenly
+   *   <li>"3.0" — moderate Zipf: hottest 10% of vocab get ~46% of accesses
+   *   <li>"6.0" — heavy Zipf: hottest 10% of vocab get ~68% of accesses
    *   <li>"UUID" — 16-byte unique terms, 1 per doc (primary key pattern, all newTerm)
    * </ul>
    */
   @Param({"1.0", "3.0", "6.0", "UUID"})
   String skew;
 
-  /** Number of documents (for random: ~1024 tokens/doc; uuid always 1 token/doc). */
+  /** Number of documents (for random: ~2048 tokens/doc; uuid always 1 token/doc). */
   @Param({"1000"})
   int numDocs;
 
@@ -113,12 +115,6 @@ public class TermsHashPerFieldBenchmark {
   private FreqProxTermsWriter termsHash;
   private TermsHashPerField perField;
 
-  /**
-   * Fixed vocabulary size for seen-term reuse when skew > 1.0. The hash table reaches this size
-   * quickly then stays in steady-state addTerm mode for the rest of the stream.
-   */
-  private static final int VOCAB_SIZE = 1 << 16; // 65536 unique terms
-
   @Setup(Level.Trial)
   public void generateData() {
     Random rng = new Random(SEED);
@@ -127,37 +123,25 @@ public class TermsHashPerFieldBenchmark {
     stream = new BytesRef[STREAM_LEN];
 
     if (isUUID) {
-      // UUID: every term is unique 16 bytes, 1 per doc
+      // UUID: every term is unique 16 bytes, 1 per doc. Hard copy each.
       for (int i = 0; i < STREAM_LEN; i++) {
         stream[i] = randomUUIDTerm(rng);
       }
       tokensPerDoc = 1;
     } else {
       double skewValue = Double.parseDouble(skew);
-      if (skewValue == 1.0) {
-        // All new terms: every add() is a brand new term (pure newTerm path)
-        for (int i = 0; i < STREAM_LEN; i++) {
-          stream[i] = randomTerm(rng, shortRatio);
-        }
-      } else {
-        // Fixed vocab table: generate VOCAB_SIZE unique terms upfront, then fill the stream
-        // by picking from this table using power-law skew (low indices = hot terms like
-        // "the", "a", "and"), or generating new unseen terms.
-        BytesRef[] vocab = new BytesRef[VOCAB_SIZE];
-        for (int i = 0; i < VOCAB_SIZE; i++) {
-          vocab[i] = randomTerm(rng, shortRatio);
-        }
-        double reuseProbability = 1.0 - 1.0 / skewValue;
-        for (int i = 0; i < STREAM_LEN; i++) {
-          if (rng.nextDouble() < reuseProbability) {
-            // Pick from vocab with power-law: low indices are hot (Zipf-like)
-            stream[i] = vocab[skewedIndex(rng, VOCAB_SIZE, skewValue)];
-          } else {
-            // New unique term (unseen → newTerm path)
-            stream[i] = randomTerm(rng, shortRatio);
-          }
-        }
+      // Generate vocab, then fill stream by skewed selection + hard copy (deep copy bytes).
+      // After setup, vocab can be GC'd — stream holds independent BytesRef instances.
+      BytesRef[] vocab = new BytesRef[VOCAB_SIZE];
+      for (int i = 0; i < VOCAB_SIZE; i++) {
+        vocab[i] = randomTerm(rng, shortRatio);
       }
+      for (int i = 0; i < STREAM_LEN; i++) {
+        BytesRef src = vocab[skewedIndex(rng, VOCAB_SIZE, skewValue)];
+        // Hard copy: each stream[i] owns its own byte[] — no shared references to vocab
+        stream[i] = BytesRef.deepCopyOf(src);
+      }
+      vocab = null; // eligible for GC
       tokensPerDoc = STREAM_LEN / numDocs;
     }
   }
