@@ -115,6 +115,8 @@ public class TermsHashPerFieldBenchmark {
   private FreqProxTermsWriter termsHash;
   private TermsHashPerField perField;
 
+  private static final int CHUNK_SIZE = 1 << 16; // 64KB per chunk
+
   @Setup(Level.Trial)
   public void generateData() {
     Random rng = new Random(SEED);
@@ -123,23 +125,56 @@ public class TermsHashPerFieldBenchmark {
     stream = new BytesRef[STREAM_LEN];
 
     if (isUUID) {
-      // UUID: every term is unique 16 bytes, 1 per doc. Hard copy each.
+      // UUID: every term is unique 16 bytes, 1 per doc.
+      // Pack into 64K chunks, slice into BytesRef views.
+      int termLen = 16;
+      int termsPerChunk = CHUNK_SIZE / termLen;
+      byte[] chunk = new byte[CHUNK_SIZE];
+      int posInChunk = CHUNK_SIZE; // force first chunk allocation
       for (int i = 0; i < STREAM_LEN; i++) {
-        stream[i] = randomUUIDTerm(rng);
+        if (posInChunk + termLen > CHUNK_SIZE) {
+          chunk = new byte[CHUNK_SIZE];
+          posInChunk = 0;
+        }
+        // Write random 16 bytes directly into chunk
+        for (int b = 0; b < termLen; b++) {
+          chunk[posInChunk + b] = (byte) rng.nextInt(256);
+        }
+        stream[i] = new BytesRef(chunk, posInChunk, termLen);
+        posInChunk += termLen;
       }
       tokensPerDoc = 1;
     } else {
       double skewValue = Double.parseDouble(skew);
-      // Generate vocab, then fill stream by skewed selection + hard copy (deep copy bytes).
-      // After setup, vocab can be GC'd — stream holds independent BytesRef instances.
+      // Generate vocab terms packed into chunks
       BytesRef[] vocab = new BytesRef[VOCAB_SIZE];
+      byte[] vChunk = new byte[CHUNK_SIZE];
+      int vPos = CHUNK_SIZE; // force first chunk allocation
       for (int i = 0; i < VOCAB_SIZE; i++) {
-        vocab[i] = randomTerm(rng, shortRatio);
+        int len = (rng.nextDouble() < shortRatio) ? 1 + rng.nextInt(8) : 9 + rng.nextInt(24);
+        if (vPos + len > CHUNK_SIZE) {
+          vChunk = new byte[CHUNK_SIZE];
+          vPos = 0;
+        }
+        for (int b = 0; b < len; b++) {
+          vChunk[vPos + b] = (byte) rng.nextInt(256);
+        }
+        vocab[i] = new BytesRef(vChunk, vPos, len);
+        vPos += len;
       }
+
+      // Fill stream: pick from vocab by skew, hard copy into chunked storage
+      byte[] sChunk = new byte[CHUNK_SIZE];
+      int sPos = CHUNK_SIZE; // force first chunk allocation
       for (int i = 0; i < STREAM_LEN; i++) {
         BytesRef src = vocab[skewedIndex(rng, VOCAB_SIZE, skewValue)];
-        // Hard copy: each stream[i] owns its own byte[] — no shared references to vocab
-        stream[i] = BytesRef.deepCopyOf(src);
+        if (sPos + src.length > CHUNK_SIZE) {
+          sChunk = new byte[CHUNK_SIZE];
+          sPos = 0;
+        }
+        System.arraycopy(src.bytes, src.offset, sChunk, sPos, src.length);
+        stream[i] = new BytesRef(sChunk, sPos, src.length);
+        sPos += src.length;
       }
       vocab = null; // eligible for GC
       tokensPerDoc = STREAM_LEN / numDocs;
@@ -247,19 +282,5 @@ public class TermsHashPerFieldBenchmark {
   private static int skewedIndex(Random rng, int vocabSize, double skew) {
     int idx = (int) (vocabSize * Math.pow(rng.nextDouble(), skew));
     return Math.min(idx, vocabSize - 1);
-  }
-
-  private static BytesRef randomTerm(Random rng, double shortRatio) {
-    int len = (rng.nextDouble() < shortRatio) ? 1 + rng.nextInt(8) : 9 + rng.nextInt(24);
-    byte[] bytes = new byte[len];
-    rng.nextBytes(bytes);
-    return new BytesRef(bytes, 0, len);
-  }
-
-  /** A 16-byte UUID term (simulates document IDs, transaction IDs, session tokens, etc.). */
-  private static BytesRef randomUUIDTerm(Random rng) {
-    byte[] bytes = new byte[16];
-    rng.nextBytes(bytes);
-    return new BytesRef(bytes, 0, 16);
   }
 }
