@@ -73,7 +73,7 @@ import org.openjdk.jmh.infra.Blackhole;
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
 @State(Scope.Thread)
 @Warmup(iterations = 3, time = 3)
-@Measurement(iterations = 5, time = 5)
+@Measurement(iterations = 5, time = 3)
 @OperationsPerInvocation(TermsHashPerFieldBenchmark.STREAM_LEN)
 @Fork(
     value = 5,
@@ -81,38 +81,26 @@ import org.openjdk.jmh.infra.Blackhole;
 public class TermsHashPerFieldBenchmark {
 
   /** Number of add() calls per benchmark invocation. */
-  static final int STREAM_LEN = 1 << 20; // 2M tokens
+  static final int STREAM_LEN = 1 << 21; // 2M tokens
 
-  /** Fixed vocabulary size = STREAM_LEN / 8. */
-  private static final int VOCAB_SIZE = STREAM_LEN / 8; // 256K unique terms
+  /** Fixed vocabulary size. */
+  private static final int VOCAB_SIZE = 1 << 18; // 256K unique terms
 
   private static final long SEED = 42L;
 
-  /**
-   * Fraction of vocabulary that is short (1..8 bytes). Rest is long (9..32 bytes). Ignored for
-   * uuid.
-   */
   @Param({"0.75"})
   double shortRatio;
 
-  /**
-   * Workload type:
-   * <ul>
-   *   <li>"1.0" — mild skew, most vocab terms accessed relatively evenly
-   *   <li>"3.0" — moderate Zipf: hottest 10% of vocab get ~46% of accesses
-   *   <li>"6.0" — heavy Zipf: hottest 10% of vocab get ~68% of accesses
-   *   <li>"UUID" — 16-byte unique terms, 1 per doc (primary key pattern, all newTerm)
-   * </ul>
-   */
-  @Param({"1.0", "4.0", "8.0", "UUID"})
+  /** Workload type. */
+  @Param({"1.0", "3.0", "6.0", "UUID"})
   String skew;
 
-  /** Number of documents (for random: ~2048 tokens/doc; uuid always 1 token/doc). */
+  /** Tokens per document (UUID always uses 1). */
   @Param({"1000"})
-  int numDocs;
+  int tokensPerDoc;
 
   private BytesRef[] stream;
-  private int tokensPerDoc;
+  private int numDocs;
 
   private FreqProxTermsWriter termsHash;
   private TermsHashPerField perField;
@@ -128,27 +116,24 @@ public class TermsHashPerFieldBenchmark {
 
     if (isUUID) {
       // UUID: every term is unique 16 bytes, 1 per doc.
-      // Pack into 64K chunks, slice into BytesRef views.
       int termLen = 16;
-      int termsPerChunk = CHUNK_SIZE / termLen;
       byte[] chunk = new byte[CHUNK_SIZE];
-      int posInChunk = CHUNK_SIZE; // force first chunk allocation
+      int posInChunk = CHUNK_SIZE;
       for (int i = 0; i < STREAM_LEN; i++) {
         if (posInChunk + termLen > CHUNK_SIZE) {
           chunk = new byte[CHUNK_SIZE];
           posInChunk = 0;
         }
-        // Write random 16 bytes directly into chunk
         for (int b = 0; b < termLen; b++) {
           chunk[posInChunk + b] = (byte) rng.nextInt(256);
         }
         stream[i] = new BytesRef(chunk, posInChunk, termLen);
         posInChunk += termLen;
       }
+      numDocs = STREAM_LEN;
       tokensPerDoc = 1;
     } else {
       double skewValue = Double.parseDouble(skew);
-      // Generate vocab terms (one-off, simple allocation)
       BytesRef[] vocab = new BytesRef[VOCAB_SIZE];
       for (int i = 0; i < VOCAB_SIZE; i++) {
         int len = (rng.nextDouble() < shortRatio) ? 1 + rng.nextInt(8) : 9 + rng.nextInt(24);
@@ -157,9 +142,8 @@ public class TermsHashPerFieldBenchmark {
         vocab[i] = new BytesRef(bytes, 0, len);
       }
 
-      // Fill stream: pick from vocab by skew, hard copy into chunked storage
       byte[] sChunk = new byte[CHUNK_SIZE];
-      int sPos = CHUNK_SIZE; // force first chunk allocation
+      int sPos = CHUNK_SIZE;
       for (int i = 0; i < STREAM_LEN; i++) {
         BytesRef src = vocab[skewedIndex(rng, VOCAB_SIZE, skewValue)];
         if (sPos + src.length > CHUNK_SIZE) {
@@ -170,8 +154,8 @@ public class TermsHashPerFieldBenchmark {
         stream[i] = new BytesRef(sChunk, sPos, src.length);
         sPos += src.length;
       }
-      vocab = null; // eligible for GC
-      tokensPerDoc = STREAM_LEN / numDocs;
+      vocab = null;
+      numDocs = STREAM_LEN / tokensPerDoc;
     }
   }
 
@@ -229,8 +213,6 @@ public class TermsHashPerFieldBenchmark {
     bh.consume(perField.getSortedTermIDs());
   }
 
-  // ===== Factory methods =====
-
   private static FreqProxTermsWriter createTermsHash() {
     IntBlockPool.Allocator intAllocator = new IntBlockPool.DirectAllocator();
     ByteBlockPool.Allocator byteAllocator = new ByteBlockPool.DirectAllocator();
@@ -267,12 +249,6 @@ public class TermsHashPerFieldBenchmark {
     return new FreqProxTermsWriterPerField(invertState, termsHash, fieldInfo, null);
   }
 
-  // ===== Helpers =====
-
-  /**
-   * Picks a vocabulary index biased toward 0 (hottest). Models Zipf's law: index = (int)(vocabSize
-   * * pow(uniform, skew)). Hot terms (low indices) get exponentially more accesses.
-   */
   private static int skewedIndex(Random rng, int vocabSize, double skew) {
     int idx = (int) (vocabSize * Math.pow(rng.nextDouble(), skew));
     return Math.min(idx, vocabSize - 1);
