@@ -74,8 +74,10 @@ import org.openjdk.jmh.infra.Blackhole;
 @State(Scope.Thread)
 @Warmup(iterations = 3, time = 3)
 @Measurement(iterations = 5, time = 3)
-@Fork(value = 2)
 @OperationsPerInvocation(TermsHashPerFieldBenchmark.STREAM_LEN)
+@Fork(
+    value = 2,
+    jvmArgsAppend = {"-Xmx8g", "-Xms8g", "-XX:+AlwaysPreTouch"})
 public class TermsHashPerFieldBenchmark {
 
   /** Number of add() calls per benchmark invocation. */
