@@ -79,7 +79,7 @@ import org.openjdk.jmh.infra.Blackhole;
 public class TermsHashPerFieldBenchmark {
 
   /** Number of add() calls per benchmark invocation. */
-  static final int STREAM_LEN = 1 << 21; // 2M tokens
+  static final int STREAM_LEN = 1 << 20; // 2M tokens
 
   /** Fixed vocabulary size = STREAM_LEN / 8. */
   private static final int VOCAB_SIZE = STREAM_LEN / 8; // 256K unique terms
@@ -102,7 +102,7 @@ public class TermsHashPerFieldBenchmark {
    *   <li>"UUID" — 16-byte unique terms, 1 per doc (primary key pattern, all newTerm)
    * </ul>
    */
-  @Param({"1.0", "3.0", "6.0", "UUID"})
+  @Param({"1.0", "4.0", "8.0", "UUID"})
   String skew;
 
   /** Number of documents (for random: ~2048 tokens/doc; uuid always 1 token/doc). */
